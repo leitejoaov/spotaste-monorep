@@ -61,7 +61,7 @@ Express Backend (:3000)
 ### 1. Clonar o repositorio
 
 ```bash
-git clone https://github.com/leitejoaov/spotaste.git
+git clone https://github.com/leitejoaov/spotaste-monorep.git
 cd spotaste
 ```
 

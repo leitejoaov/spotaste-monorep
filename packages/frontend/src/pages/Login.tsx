@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { Music, Headphones, Mic2 } from "lucide-react";
 import SpotifyButton from "../components/SpotifyButton";
 
@@ -11,6 +12,8 @@ const floatingIcons = [
 ];
 
 export default function Login() {
+  const navigate = useNavigate();
+
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-spotify-dark via-[#0d1117] to-[#1a0a2e]">
       {/* Animated background blobs */}
@@ -81,7 +84,12 @@ export default function Login() {
         <p className="text-[11px] text-white/30 text-center">
           Conectamos com o Spotify apenas para ler seus artistas favoritos.
           <br />
-          Não armazenamos nenhum dado.
+          <button
+            onClick={() => navigate("/privacy")}
+            className="text-spotify-green/50 hover:text-spotify-green underline transition-colors"
+          >
+            Politica de Privacidade
+          </button>
         </p>
       </motion.div>
     </div>
