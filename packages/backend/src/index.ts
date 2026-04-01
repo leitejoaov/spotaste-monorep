@@ -545,10 +545,6 @@ app.get("/api/playlist/:id", async (req, res) => {
 
 app.get("/api/artist-details", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token) {
-    res.status(401).json({ error: "Missing access token" });
-    return;
-  }
 
   const name = req.query.name as string;
   if (!name) {
@@ -557,32 +553,77 @@ app.get("/api/artist-details", async (req, res) => {
   }
 
   try {
-    const artist = await searchArtist(token, name);
-    if (!artist) {
-      res.status(404).json({ error: "Artista nao encontrado" });
-      return;
+    // Always try Last.fm data (bio, tags, similar)
+    const lfmInfo = await lfmGetArtistInfo(name);
+
+    let result: any = {};
+
+    if (token) {
+      // Spotify data
+      const artist = await searchArtist(token, name);
+      if (!artist) {
+        res.status(404).json({ error: "Artista nao encontrado" });
+        return;
+      }
+
+      const topTracks = await getArtistTopTracks(token, artist.id);
+
+      result = {
+        id: artist.id,
+        name: artist.name,
+        image: artist.images[0]?.url ?? null,
+        genres: artist.genres,
+        popularity: artist.popularity,
+        spotify_url: artist.external_urls.spotify,
+        top_tracks: topTracks.map((t, i) => ({
+          position: i + 1,
+          id: t.id,
+          name: t.name,
+          artist: t.artists.map((a) => a.name).join(", "),
+          album_name: t.album.name,
+          album_image: t.album.images?.[1]?.url ?? t.album.images?.[0]?.url ?? null,
+          spotify_url: t.external_urls.spotify,
+          duration_ms: t.duration_ms,
+        })),
+      };
+    } else {
+      // No Spotify token — use Last.fm top tracks as fallback
+      const lfmTopTracks = await lfmGetArtistTopTracks(name, 10);
+
+      result = {
+        id: `lastfm_${name}`.slice(0, 60),
+        name: lfmInfo?.name || name,
+        image: lfmInfo?.image || null,
+        genres: lfmInfo?.tags || [],
+        popularity: null,
+        spotify_url: null,
+        top_tracks: lfmTopTracks.map((t, i) => ({
+          position: i + 1,
+          id: `lastfm_${t.name}_${name}`.slice(0, 60),
+          name: t.name,
+          artist: name,
+          album_name: "",
+          album_image: null,
+          spotify_url: null,
+          duration_ms: null,
+          listeners: t.listeners,
+          playcount: t.playcount,
+        })),
+      };
     }
 
-    const topTracks = await getArtistTopTracks(token, artist.id);
+    // Attach Last.fm enrichment
+    if (lfmInfo) {
+      result.lastfm = {
+        bio: lfmInfo.bio,
+        tags: lfmInfo.tags,
+        similar: lfmInfo.similar,
+        listeners: lfmInfo.listeners,
+        global_playcount: lfmInfo.playcount,
+      };
+    }
 
-    res.json({
-      id: artist.id,
-      name: artist.name,
-      image: artist.images[0]?.url ?? null,
-      genres: artist.genres,
-      popularity: artist.popularity,
-      spotify_url: artist.external_urls.spotify,
-      top_tracks: topTracks.map((t, i) => ({
-        position: i + 1,
-        id: t.id,
-        name: t.name,
-        artist: t.artists.map((a) => a.name).join(", "),
-        album_name: t.album.name,
-        album_image: t.album.images?.[1]?.url ?? t.album.images?.[0]?.url ?? null,
-        spotify_url: t.external_urls.spotify,
-        duration_ms: t.duration_ms,
-      })),
-    });
+    res.json(result);
   } catch (error: any) {
     console.error("[artist-details] ERROR:", error.message);
     res.status(error.response?.status || 500).json({ error: "Falha ao buscar artista" });
