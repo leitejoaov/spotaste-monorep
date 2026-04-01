@@ -67,8 +67,9 @@ const FORMAT_INSTRUCTIONS = `FORMATO: Responda APENAS com um JSON array de objet
 Moods disponiveis: "shocked", "disgusted", "laughing", "judging", "impressed", "crying", "angry", "confused", "sarcastic", "dead"
 
 REGRAS DE FORMATO:
-- 8-12 mensagens no total
-- Cada mensagem deve ser CURTA: 1 frase apenas, maximo 2 frases curtas
+- 5-7 mensagens no total
+- Cada mensagem tem 2-4 frases, como um paragrafo curto de whatsapp
+- Desenvolva a ideia em cada mensagem, nao seja telegráfico demais
 - Varie os moods conforme o tom da mensagem
 - Comece com "shocked" ou "confused" ao ver o perfil
 - Termine com "dead" ou "laughing" no veredito final
