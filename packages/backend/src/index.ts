@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { config } from "./config.js";
 import { authRouter } from "./routes/auth.js";
+import lastfmAuthRouter from "./routes/auth-lastfm.js";
 import { getTopTracks, getSpotifyUserId, getTrackDetails, searchTracks, createPlaylist, addTracksToPlaylist, searchArtist, getArtistTopTracks } from "./spotify.js";
 import { getMusicTasteAnalysis } from "./judge.js";
 import { analyzeTaste, generateVibeProfile } from "./claude.js";
@@ -25,6 +26,7 @@ app.use(express.json());
 app.use("/api/", apiLimiter);
 
 app.use("/auth", authRouter);
+app.use(lastfmAuthRouter);
 
 app.post("/api/judge", claudeLimiter, async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
