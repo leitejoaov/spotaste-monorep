@@ -9,7 +9,7 @@ import lastfmAuthRouter from "./routes/auth-lastfm.js";
 import settingsRouter from "./routes/settings.js";
 import { getTopTracks, getSpotifyUserId, getTrackDetails, searchTracks, createPlaylist, addTracksToPlaylist, searchArtist, getArtistTopTracks } from "./spotify.js";
 import { getMusicTasteAnalysis, getEnrichedMusicTasteAnalysis } from "./judge.js";
-import { getTopArtists as lfmGetTopArtists, validateUser as lfmValidateUser, getTopTracks as lfmGetTopTracks, getTrackInfo as lfmGetTrackInfo, searchTrack as lfmSearchTrack, getArtistInfo as lfmGetArtistInfo, getArtistTopTracks as lfmGetArtistTopTracks } from "./lastfm.js";
+import { getTopArtists as lfmGetTopArtists, validateUser as lfmValidateUser, getTopTracks as lfmGetTopTracks, getTrackInfo as lfmGetTrackInfo, searchTrack as lfmSearchTrack, getArtistInfo as lfmGetArtistInfo, getArtistTopTracks as lfmGetArtistTopTracks, resolveTrackImage, resolveArtistImage } from "./lastfm.js";
 import { analyzeTaste, generateVibeProfile } from "./claude.js";
 import { getCachedAnalysis, setCachedAnalysis } from "./cache.js";
 import { analyzeWithEssentia } from "./essentia.js";
@@ -164,17 +164,18 @@ app.get("/api/analyze-taste", claudeLimiter, async (req, res) => {
     if (lastfmUser) {
       // Use Last.fm top tracks as data source
       const lfmTracks = await lfmGetTopTracks(lastfmUser, "overall", 20);
-      // Enrich with tags from getTrackInfo
+      // Enrich with tags and images (Deezer fallback for covers)
       spotifyTracks = await Promise.all(
         lfmTracks.map(async (lt) => {
           const info = await lfmGetTrackInfo(lt.artist, lt.name, lastfmUser);
+          const image = await resolveTrackImage(lt.name, lt.artist, lt.image);
           return {
             id: `lastfm_${lt.name}_${lt.artist}`.slice(0, 60),
             name: lt.name,
             artists: [{ name: lt.artist }],
             album: {
               name: info?.album || "",
-              images: lt.image ? [{ url: lt.image }] : [],
+              images: image ? [{ url: image }] : [],
             },
             popularity: Math.min(100, Math.round(lt.playcount / 10)),
             tags: info?.tags || [],
@@ -620,26 +621,35 @@ app.get("/api/artist-details", async (req, res) => {
     } else {
       // No Spotify token — use Last.fm top tracks as fallback
       const lfmTopTracks = await lfmGetArtistTopTracks(name, 10);
+      const artistImage = lfmInfo?.image || await resolveArtistImage(name, "");
+
+      // Resolve track images via Deezer
+      const tracksWithImages = await Promise.all(
+        lfmTopTracks.map(async (t, i) => {
+          const trackImg = await resolveTrackImage(t.name, name, "");
+          return {
+            position: i + 1,
+            id: `lastfm_${t.name}_${name}`.slice(0, 60),
+            name: t.name,
+            artist: name,
+            album_name: "",
+            album_image: trackImg || null,
+            spotify_url: null,
+            duration_ms: null,
+            listeners: t.listeners,
+            playcount: t.playcount,
+          };
+        })
+      );
 
       result = {
         id: `lastfm_${name}`.slice(0, 60),
         name: lfmInfo?.name || name,
-        image: lfmInfo?.image || null,
+        image: artistImage,
         genres: lfmInfo?.tags || [],
         popularity: null,
         spotify_url: null,
-        top_tracks: lfmTopTracks.map((t, i) => ({
-          position: i + 1,
-          id: `lastfm_${t.name}_${name}`.slice(0, 60),
-          name: t.name,
-          artist: name,
-          album_name: "",
-          album_image: null,
-          spotify_url: null,
-          duration_ms: null,
-          listeners: t.listeners,
-          playcount: t.playcount,
-        })),
+        top_tracks: tracksWithImages,
       };
     }
 

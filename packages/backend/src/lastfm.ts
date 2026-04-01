@@ -158,7 +158,7 @@ async function cachedGet(
 
 // ============ IMAGE FALLBACK (Deezer) ============
 
-async function resolveArtistImage(
+export async function resolveArtistImage(
   name: string,
   lastfmImage: string
 ): Promise<string> {
@@ -184,6 +184,37 @@ async function resolveArtistImage(
     return img;
   } catch {
     return lastfmImage || "";
+  }
+}
+
+export async function resolveTrackImage(
+  trackName: string,
+  artistName: string,
+  lastfmImage: string
+): Promise<string> {
+  // If Last.fm provided a valid image, use it
+  if (lastfmImage && !lastfmImage.includes("2a96cbd8b46e442fc41c2b86b821562f")) {
+    return lastfmImage;
+  }
+
+  // Fallback to Deezer track search (returns album cover)
+  const cacheKey = `deezer_track_${artistName.toLowerCase()}_${trackName.toLowerCase()}`;
+  const cached = await getLastfmCache("_global", cacheKey);
+  if (cached?.url) return cached.url;
+
+  try {
+    const { data } = await axios.get("https://api.deezer.com/search", {
+      params: { q: `artist:"${artistName}" track:"${trackName}"`, limit: 1 },
+      timeout: 5000,
+    });
+    const img = data?.data?.[0]?.album?.cover_big || data?.data?.[0]?.album?.cover_medium || "";
+    if (img) {
+      await setLastfmCache("_global", cacheKey, { url: img });
+    }
+    return img;
+  } catch {
+    // Fall back to artist image
+    return resolveArtistImage(artistName, "");
   }
 }
 
