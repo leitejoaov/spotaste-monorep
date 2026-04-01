@@ -226,10 +226,6 @@ app.get("/api/analyze-taste", claudeLimiter, async (req, res) => {
 
 app.get("/api/search-tracks", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token) {
-    res.status(401).json({ error: "Missing access token" });
-    return;
-  }
 
   const q = req.query.q as string;
   if (!q || q.trim().length < 2) {
@@ -238,14 +234,29 @@ app.get("/api/search-tracks", async (req, res) => {
   }
 
   try {
-    const results = await searchTracks(token, q);
-    res.json(results.map((t) => ({
-      id: t.id,
-      name: t.name,
-      artist: t.artists[0]?.name || "Unknown",
-      album: t.album.name,
-      image: t.album.images?.[2]?.url ?? t.album.images?.[0]?.url ?? null,
-    })));
+    if (token) {
+      // Spotify search
+      const results = await searchTracks(token, q);
+      res.json(results.map((t) => ({
+        id: t.id,
+        name: t.name,
+        artist: t.artists[0]?.name || "Unknown",
+        album: t.album.name,
+        image: t.album.images?.[2]?.url ?? t.album.images?.[0]?.url ?? null,
+        source: "spotify" as const,
+      })));
+    } else {
+      // Last.fm fallback search
+      const results = await lfmSearchTrack(q);
+      res.json(results.map((t) => ({
+        id: `lastfm_${t.name}_${t.artist}`.slice(0, 60),
+        name: t.name,
+        artist: t.artist,
+        album: "",
+        image: t.image || null,
+        source: "lastfm" as const,
+      })));
+    }
   } catch (error: any) {
     console.error("[search] ERROR:", error.message);
     res.status(error.response?.status || 500).json({ error: "Search failed" });
