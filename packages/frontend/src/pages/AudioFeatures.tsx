@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Music, ArrowLeft, Search, AlertCircle, Loader2, Database, Wifi, CheckCircle2, Clock } from "lucide-react";
-import { getAccessToken } from "../hooks/useAuth";
+import { usePlatform } from "../context/PlatformContext";
 
 interface TrackFeatures {
   bpm: number;
@@ -73,7 +73,7 @@ function MiniBar({ value, color }: { value: number; color: string }) {
 export default function AudioFeatures() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const accessToken = getAccessToken();
+  const { getHeaders } = usePlatform();
 
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
@@ -109,7 +109,7 @@ export default function AudioFeatures() {
     setSearching(true);
     searchDebounceRef.current = setTimeout(() => {
       fetch(`/api/search-tracks?q=${encodeURIComponent(trimmed)}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: { ...getHeaders() },
       })
         .then((r) => r.json())
         .then((data) => {
@@ -121,7 +121,7 @@ export default function AudioFeatures() {
     }, 400);
 
     return () => clearTimeout(searchDebounceRef.current);
-  }, [input, accessToken]);
+  }, [input, getHeaders]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -184,7 +184,7 @@ export default function AudioFeatures() {
     try {
       const res = await fetch(`/api/enqueue-track/${trackId}`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: { ...getHeaders() },
       });
 
       if (!res.ok) {

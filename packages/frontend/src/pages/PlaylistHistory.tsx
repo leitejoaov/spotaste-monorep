@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ListMusic, ExternalLink, ChevronDown, ChevronUp, Loader2, Music2, Sparkles } from "lucide-react";
 import TrackRating from "../components/TrackRating";
-import { getAccessToken } from "../hooks/useAuth";
+import { usePlatform } from "../context/PlatformContext";
 
 interface PlaylistSummary {
   id: number;
@@ -42,7 +42,7 @@ function AccuracyBadge({ label, value, color }: { label: string; value: number |
 export default function PlaylistHistory() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const accessToken = getAccessToken();
+  const { getHeaders } = usePlatform();
 
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +52,7 @@ export default function PlaylistHistory() {
 
   useEffect(() => {
     fetch("/api/playlist/history", {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { ...getHeaders() },
     })
       .then((r) => r.json())
       .then((data) => {
@@ -60,7 +60,7 @@ export default function PlaylistHistory() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [accessToken]);
+  }, [getHeaders]);
 
   const toggleExpand = async (id: number) => {
     if (expandedId === id) {
@@ -72,7 +72,9 @@ export default function PlaylistHistory() {
     setExpandedId(id);
     setDetailLoading(true);
     try {
-      const res = await fetch(`/api/playlist/${id}`);
+      const res = await fetch(`/api/playlist/${id}`, {
+        headers: { ...getHeaders() },
+      });
       if (res.ok) {
         setDetail(await res.json());
       }

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Music, ArrowLeft, Share2, Loader2 } from "lucide-react";
-import { getAccessToken } from "../hooks/useAuth";
+import { usePlatform } from "../context/PlatformContext";
 
 interface ArtistData {
   name: string;
@@ -46,16 +46,13 @@ export default function Judge() {
   const [copied, setCopied] = useState(false);
 
   const hubData = searchParams.get("hubData") || "";
-  const accessToken = getAccessToken();
+  const { getHeaders } = usePlatform();
 
   const fetchAnalysis = useCallback(async (artistsList: ArtistData[]) => {
     try {
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
-
       const res = await fetch("/api/judge", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json", ...getHeaders() },
         body: JSON.stringify({ artists: artistsList }),
       });
 

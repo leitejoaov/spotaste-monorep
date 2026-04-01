@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ExternalLink, Loader2, Music2, Clock } from "lucide-react";
+import { usePlatform } from "../context/PlatformContext";
 
 interface ArtistTrack {
   position: number;
@@ -13,6 +14,14 @@ interface ArtistTrack {
   duration_ms: number;
 }
 
+interface LastfmData {
+  bio?: string;
+  tags?: string[];
+  similar?: { name: string; match: number }[];
+  listeners?: number;
+  global_playcount?: number;
+}
+
 interface ArtistDetails {
   id: string;
   name: string;
@@ -21,6 +30,7 @@ interface ArtistDetails {
   popularity: number;
   spotify_url: string;
   top_tracks: ArtistTrack[];
+  lastfm?: LastfmData;
 }
 
 interface Props {
@@ -39,10 +49,11 @@ export default function ArtistModal({ artistName, accessToken, onClose }: Props)
   const [data, setData] = useState<ArtistDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const { getHeaders } = usePlatform();
 
   useEffect(() => {
     fetch(`/api/artist-details?name=${encodeURIComponent(artistName)}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { ...getHeaders() },
     })
       .then(async (r) => {
         if (!r.ok) throw new Error("Falha ao buscar artista");
@@ -51,7 +62,7 @@ export default function ArtistModal({ artistName, accessToken, onClose }: Props)
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [artistName, accessToken]);
+  }, [artistName, getHeaders]);
 
   return (
     <AnimatePresence>
@@ -140,7 +151,7 @@ export default function ArtistModal({ artistName, accessToken, onClose }: Props)
                   {data.top_tracks.map((track, i) => (
                     <motion.a
                       key={track.id}
-                      href={track.spotify_url}
+                      href={track.spotify_url || undefined}
                       target="_blank"
                       rel="noopener noreferrer"
                       initial={{ opacity: 0, x: -10 }}
@@ -167,16 +178,81 @@ export default function ArtistModal({ artistName, accessToken, onClose }: Props)
                         <p className="text-[11px] text-spotify-text truncate">{track.album_name}</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[10px] text-white/30 flex items-center gap-1">
-                          <Clock size={10} />
-                          {formatDuration(track.duration_ms)}
-                        </span>
-                        <ExternalLink size={12} className="text-white/0 group-hover:text-spotify-green transition-colors" />
+                        {track.duration_ms && (
+                          <span className="text-[10px] text-white/30 flex items-center gap-1">
+                            <Clock size={10} />
+                            {formatDuration(track.duration_ms)}
+                          </span>
+                        )}
+                        {track.spotify_url && (
+                          <ExternalLink size={12} className="text-white/0 group-hover:text-spotify-green transition-colors" />
+                        )}
                       </div>
                     </motion.a>
                   ))}
                 </div>
               </div>
+
+              {/* Last.fm data */}
+              {data.lastfm && (
+                <div className="px-6 pb-6 space-y-5">
+                  {/* Bio */}
+                  {data.lastfm.bio && (
+                    <div>
+                      <h3 className="text-[10px] uppercase tracking-widest text-white/30 mb-3">
+                        Sobre
+                      </h3>
+                      <div
+                        className="text-sm text-gray-400 leading-relaxed [&_a]:text-spotify-green [&_a]:hover:underline"
+                        dangerouslySetInnerHTML={{ __html: data.lastfm.bio }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Tags */}
+                  {data.lastfm.tags && data.lastfm.tags.length > 0 && (
+                    <div>
+                      <h3 className="text-[10px] uppercase tracking-widest text-white/30 mb-3">
+                        Tags
+                      </h3>
+                      <div className="flex flex-wrap gap-1.5">
+                        {data.lastfm.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="text-[10px] px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-white/60 font-medium"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Similar artists */}
+                  {data.lastfm.similar && data.lastfm.similar.length > 0 && (
+                    <div>
+                      <h3 className="text-[10px] uppercase tracking-widest text-white/30 mb-3">
+                        Artistas Similares
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {data.lastfm.similar.map((s) => (
+                          <span
+                            key={s.name}
+                            className="text-[11px] px-2.5 py-1 rounded-full bg-spotify-green/10 border border-spotify-green/20 text-spotify-green font-medium"
+                          >
+                            {s.name}
+                            {s.match > 0 && (
+                              <span className="ml-1 text-[9px] text-spotify-green/60">
+                                {Math.round(s.match * 100)}%
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           ) : null}
         </motion.div>
