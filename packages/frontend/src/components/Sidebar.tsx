@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Menu, X, Home, Flame, BarChart3, Headphones, Library,
-  Sparkles, ListMusic, LogOut, Music,
+  Sparkles, ListMusic, LogOut, Music, Settings,
 } from "lucide-react";
 import { clearAccessToken } from "../hooks/useAuth";
 
@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { path: "/library", label: "Banco de Musicas", icon: Library },
   { path: "/text-to-playlist", label: "Text to Playlist", icon: Sparkles },
   { path: "/playlist-history", label: "Minhas Playlists", icon: ListMusic },
+  { path: "/settings", label: "Configuracoes", icon: Settings },
 ];
 
 interface Props {
