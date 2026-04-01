@@ -43,3 +43,46 @@ FORMATO: texto corrido, sem titulos, sem bullet points. Como se fosse um textao 
   if (block.type === "text") return block.text;
   throw new Error("Unexpected response type from Claude");
 }
+
+export async function getEnrichedMusicTasteAnalysis(
+  artists: { name: string; genres: string[]; playcount?: number }[],
+  totalScrobbles?: number,
+  memberSince?: number
+): Promise<string> {
+  const artistList = artists
+    .map(
+      (a) =>
+        `${a.name} (${a.genres.join(", ") || "sem genero"})${
+          a.playcount ? ` — ${a.playcount} plays` : ""
+        }`
+    )
+    .join("\n");
+
+  const statsLine = [
+    totalScrobbles ? `Total de scrobbles: ${totalScrobbles.toLocaleString()}` : "",
+    memberSince
+      ? `Membro desde: ${new Date(memberSince * 1000).getFullYear()}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const msg = await anthropic.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 1500,
+    system: `Voce e um critico musical gen-z brasileiro BRUTALMENTE sincero e engraçado.
+Voce recebe os artistas mais ouvidos do usuario COM a quantidade de vezes que ele ouviu cada um.
+Use esses numeros pra fazer piadas ESPECIFICAS (ex: "tu ouviu X 847 vezes, isso e uma vez a cada 3 horas, ta tudo bem?").
+Quanto maior o numero, mais zoa. Se o total de scrobbles for absurdo, zoa também.
+Usa girias gen-z brasileiras (kkkkk, ne possivel, mlk, mano, vey).
+Tom: zoeiro, memes, comparacoes absurdas. 4-5 paragrafos. Sem markdown, texto puro.`,
+    messages: [
+      {
+        role: "user",
+        content: `Top artistas:\n${artistList}\n\n${statsLine}`,
+      },
+    ],
+  });
+
+  return (msg.content[0] as any).text;
+}

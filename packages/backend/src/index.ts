@@ -8,7 +8,8 @@ import { authRouter } from "./routes/auth.js";
 import lastfmAuthRouter from "./routes/auth-lastfm.js";
 import settingsRouter from "./routes/settings.js";
 import { getTopTracks, getSpotifyUserId, getTrackDetails, searchTracks, createPlaylist, addTracksToPlaylist, searchArtist, getArtistTopTracks } from "./spotify.js";
-import { getMusicTasteAnalysis } from "./judge.js";
+import { getMusicTasteAnalysis, getEnrichedMusicTasteAnalysis } from "./judge.js";
+import { getTopArtists as lfmGetTopArtists, validateUser as lfmValidateUser, getTopTracks as lfmGetTopTracks, getTrackInfo as lfmGetTrackInfo, searchTrack as lfmSearchTrack, getArtistInfo as lfmGetArtistInfo, getArtistTopTracks as lfmGetArtistTopTracks } from "./lastfm.js";
 import { analyzeTaste, generateVibeProfile } from "./claude.js";
 import { getCachedAnalysis, setCachedAnalysis } from "./cache.js";
 import { analyzeWithEssentia } from "./essentia.js";
@@ -32,6 +33,8 @@ app.use(settingsRouter);
 
 app.post("/api/judge", claudeLimiter, async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
+  const lastfmUser = req.headers["x-lastfm-user"] as string | undefined;
+  const userId_header = req.headers["x-user-id"] as string | undefined;
   const { artists } = req.body;
   if (!artists || !Array.isArray(artists) || artists.length > 50) {
     res.status(400).json({ error: "Missing or invalid artists data" });
@@ -39,25 +42,59 @@ app.post("/api/judge", claudeLimiter, async (req, res) => {
   }
 
   try {
-    // Check cache if we have a token
+    // Determine cache user ID
+    let cacheUserId: string | null = null;
     if (token) {
-      const userId = await getSpotifyUserId(token);
+      cacheUserId = await getSpotifyUserId(token);
+    } else if (lastfmUser) {
+      cacheUserId = `lastfm_${lastfmUser}`;
+    } else if (userId_header) {
+      cacheUserId = userId_header;
+    }
+
+    // Check cache
+    if (cacheUserId) {
       const artHash = hashArtists(artists);
-      const cached = await getCachedJudge(userId, artHash);
+      const cached = await getCachedJudge(cacheUserId, artHash);
       if (cached) {
-        console.log("[judge] cache hit for", userId);
+        console.log("[judge] cache hit for", cacheUserId);
         res.json({ analysis: cached });
         return;
       }
 
-      console.log("[judge] cache miss for", userId);
-      const analysis = await getMusicTasteAnalysis(artists);
-      await setCachedJudge(userId, artHash, analysis);
+      console.log("[judge] cache miss for", cacheUserId);
+
+      let analysis: string;
+      if (lastfmUser) {
+        // Enriched roast with Last.fm play counts
+        const userInfo = await lfmValidateUser(lastfmUser);
+        const lfmArtists = await lfmGetTopArtists(lastfmUser, "overall", 50);
+        // Merge Last.fm play counts into request artists
+        const enrichedArtists = artists.map((a: any) => {
+          const lfmMatch = lfmArtists.find(
+            (la) => la.name.toLowerCase() === a.name.toLowerCase()
+          );
+          return {
+            name: a.name,
+            genres: a.genres || [],
+            playcount: lfmMatch?.playcount,
+          };
+        });
+        analysis = await getEnrichedMusicTasteAnalysis(
+          enrichedArtists,
+          userInfo?.playcount,
+          userInfo?.registered
+        );
+      } else {
+        analysis = await getMusicTasteAnalysis(artists);
+      }
+
+      await setCachedJudge(cacheUserId, artHash, analysis);
       res.json({ analysis });
       return;
     }
 
-    // No token — just generate without caching
+    // No token, no lastfm — just generate without caching
     const analysis = await getMusicTasteAnalysis(artists);
     res.json({ analysis });
   } catch (error: any) {
