@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Music, ArrowLeft, Loader2 } from "lucide-react";
-import { getAccessToken } from "../hooks/useAuth";
+import { usePlatform } from "../context/PlatformContext";
 
 interface EssentiaData {
   bpm: number;
@@ -76,7 +76,7 @@ const LOADING_PHRASES = [
 export default function TasteAnalysis() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const accessToken = getAccessToken();
+  const { getHeaders, isLoggedIn } = usePlatform();
   const hubData = searchParams.get("hubData") || "";
 
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -86,13 +86,13 @@ export default function TasteAnalysis() {
   const [expandedTrack, setExpandedTrack] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!accessToken) {
+    if (!isLoggedIn) {
       navigate("/");
       return;
     }
 
     fetch("/api/analyze-taste", {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { ...getHeaders() },
     })
       .then(async (res) => {
         if (!res.ok) {
@@ -104,7 +104,7 @@ export default function TasteAnalysis() {
       .then((data) => setResult(data))
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [accessToken, navigate]);
+  }, [isLoggedIn, getHeaders, navigate]);
 
   useEffect(() => {
     if (!loading) return;

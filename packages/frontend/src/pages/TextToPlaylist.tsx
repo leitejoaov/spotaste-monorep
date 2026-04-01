@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, ArrowLeft, Loader2, ExternalLink, Music2, ChevronDown, ChevronUp, BarChart3 } from "lucide-react";
+import { Sparkles, ArrowLeft, Loader2, ExternalLink, Music2, ChevronDown, ChevronUp, BarChart3, Info } from "lucide-react";
 import TrackRating from "../components/TrackRating";
-import { getAccessToken } from "../hooks/useAuth";
+import { usePlatform } from "../context/PlatformContext";
 
 interface PlaylistTrack {
   position: number;
@@ -73,7 +73,7 @@ function MiniBar({ value, color }: { value: number; color: string }) {
 export default function TextToPlaylist() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const accessToken = getAccessToken();
+  const { getHeaders, hasSpotify } = usePlatform();
 
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
@@ -102,7 +102,7 @@ export default function TextToPlaylist() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
+          ...getHeaders(),
         },
         body: JSON.stringify({ description: description.trim() }),
       });
@@ -241,7 +241,7 @@ export default function TextToPlaylist() {
             >
               <h2 className="font-display font-bold text-xl text-white mb-1">{playlist.name}</h2>
               <p className="text-sm text-spotify-text mb-4">"{playlist.description}"</p>
-              {playlist.spotify_url && (
+              {hasSpotify && playlist.spotify_url ? (
                 <a
                   href={playlist.spotify_url}
                   target="_blank"
@@ -251,7 +251,12 @@ export default function TextToPlaylist() {
                   <ExternalLink size={14} />
                   Abrir no Spotify
                 </a>
-              )}
+              ) : !hasSpotify ? (
+                <p className="inline-flex items-center gap-2 text-xs text-white/40">
+                  <Info size={14} />
+                  Conecte o Spotify nas configuracoes pra salvar playlists
+                </p>
+              ) : null}
             </motion.div>
 
             {/* Vibe profile */}

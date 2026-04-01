@@ -9,20 +9,21 @@ import TextToPlaylist from "./pages/TextToPlaylist";
 import PlaylistHistory from "./pages/PlaylistHistory";
 import AuthCallback from "./pages/AuthCallback";
 import Privacy from "./pages/Privacy";
+import Settings from "./pages/Settings";
 import Sidebar from "./components/Sidebar";
-import { getAccessToken } from "./hooks/useAuth";
+import { PlatformProvider, usePlatform } from "./context/PlatformContext";
 
 function AppContent() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const token = getAccessToken();
+  const { isLoggedIn } = usePlatform();
 
   const hideSidebar = location.pathname === "/" || location.pathname === "/auth-callback";
   const hubData = searchParams.get("hubData") || searchParams.get("artists") || "";
 
   return (
     <>
-      {token && !hideSidebar && <Sidebar hubData={hubData} />}
+      {isLoggedIn && !hideSidebar && <Sidebar hubData={hubData} />}
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/auth-callback" element={<AuthCallback />} />
@@ -34,11 +35,16 @@ function AppContent() {
         <Route path="/text-to-playlist" element={<TextToPlaylist />} />
         <Route path="/playlist-history" element={<PlaylistHistory />} />
       <Route path="/privacy" element={<Privacy />} />
+        <Route path="/settings" element={<Settings />} />
       </Routes>
     </>
   );
 }
 
 export default function App() {
-  return <AppContent />;
+  return (
+    <PlatformProvider>
+      <AppContent />
+    </PlatformProvider>
+  );
 }
