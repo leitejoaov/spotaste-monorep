@@ -218,3 +218,12 @@ spotaste/
 ## Licenca
 
 MIT
+
+<img width="1708" height="992" alt="{2DDC60C3-AD20-41CC-A6D9-3CF944E69A5B}" src="https://github.com/user-attachments/assets/0e1dbb9a-3970-466c-a3cb-16189818904e" />
+<img width="1707" height="998" alt="{C1AB346A-5C97-42BD-96CB-83A7A8493FE4}" src="https://github.com/user-attachments/assets/0501a249-f872-4fee-a343-227a3134fba9" />
+<img width="1711" height="993" alt="{3E72035E-9B45-4C37-8479-B36536B1BDA4}" src="https://github.com/user-attachments/assets/0cf64da5-f97d-42f9-a8ef-a74b6a2311fc" />
+<img width="1711" height="990" alt="{6790671D-A3F0-48BD-8F2D-C95F127CF1B9}" src="https://github.com/user-attachments/assets/0df3b7fa-7fa0-433b-8d5b-eefacc5a75d0" />
+<img width="1710" height="984" alt="{C2BCC990-5C8B-4809-A7DF-E0ECE7326D43}" src="https://github.com/user-attachments/assets/8ec9e77e-1cbb-4506-95b3-4f58c67664a9" />
+<img width="1707" height="988" alt="{A8F02D08-F5BC-43DC-87E3-5EBCD8F9F4D9}" src="https://github.com/user-attachments/assets/94756873-a06a-408f-b140-ecc0603178b4" />
+<img width="1708" height="990" alt="{B5FBD620-A167-4A4C-B2CE-2BBB92CECCF9}" src="https://github.com/user-attachments/assets/d072832e-7a00-4a9e-972b-2d4ae9d438d0" />
+
