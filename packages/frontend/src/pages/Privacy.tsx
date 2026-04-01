@@ -100,12 +100,12 @@ export default function Privacy() {
             <p>
               O codigo-fonte do Spotaste e 100% aberto e pode ser auditado em{" "}
               <a
-                href="https://github.com/leitejoaov/spotaste"
+                href="https://github.com/leitejoaov/spotaste-monorep"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-spotify-green hover:underline"
               >
-                github.com/leitejoaov/spotaste
+                github.com/leitejoaov/spotaste-monorep
               </a>.
             </p>
           </section>
@@ -115,7 +115,7 @@ export default function Privacy() {
             <p>
               Duvidas sobre privacidade? Abra uma issue no{" "}
               <a
-                href="https://github.com/leitejoaov/spotaste/issues"
+                href="https://github.com/leitejoaov/spotaste-monorep/issues"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-spotify-green hover:underline"
