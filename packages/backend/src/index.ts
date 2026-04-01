@@ -531,12 +531,33 @@ app.get("/api/playlist/history", async (req, res) => {
 });
 
 app.get("/api/playlist/:id", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  const userId = Number(req.headers["x-user-id"]) || undefined;
+
+  if (!token && !userId) {
+    res.status(401).json({ error: "Auth required" });
+    return;
+  }
+
   try {
     const result = await getPlaylistWithTracks(Number(req.params.id));
     if (!result) {
       res.status(404).json({ error: "Playlist nao encontrada" });
       return;
     }
+
+    // Ownership check: verify caller owns this playlist
+    if (token) {
+      const spotifyId = await getSpotifyUserId(token);
+      if (result.playlist.user_spotify_id && result.playlist.user_spotify_id !== spotifyId) {
+        res.status(403).json({ error: "Acesso negado" });
+        return;
+      }
+    } else if (userId && result.playlist.user_id && result.playlist.user_id !== userId) {
+      res.status(403).json({ error: "Acesso negado" });
+      return;
+    }
+
     res.json(result);
   } catch (error: any) {
     console.error("[playlist-detail] ERROR:", error);

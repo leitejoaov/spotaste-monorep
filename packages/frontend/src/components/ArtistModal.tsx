@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ExternalLink, Loader2, Music2, Clock } from "lucide-react";
 import { usePlatform } from "../context/PlatformContext";
+import DOMPurify from "dompurify";
 
 interface ArtistTrack {
   position: number;
@@ -204,7 +205,7 @@ export default function ArtistModal({ artistName, accessToken, onClose }: Props)
                       </h3>
                       <div
                         className="text-sm text-gray-400 leading-relaxed [&_a]:text-spotify-green [&_a]:hover:underline"
-                        dangerouslySetInnerHTML={{ __html: data.lastfm.bio }}
+                        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(data.lastfm.bio) }}
                       />
                     </div>
                   )}
