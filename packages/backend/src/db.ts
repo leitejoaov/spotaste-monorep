@@ -38,6 +38,12 @@ export async function initDb(): Promise<void> {
     console.log("[db] migration 003 applied");
   }
 
+  const migrate004 = resolve(__dirname, "../../../db/migrate_004_lastfm.sql");
+  if (existsSync(migrate004)) {
+    await pool.query(readFileSync(migrate004, "utf-8"));
+    console.log("Migration 004 applied (lastfm)");
+  }
+
   console.log("[db] schema initialized");
 }
 
@@ -376,4 +382,103 @@ export async function setCachedJudge(
        created_at = NOW()`,
     [userId, artistsHash, result]
   );
+}
+
+// ============ USERS ============
+
+export interface User {
+  id: number;
+  lastfm_username: string | null;
+  spotify_user_id: string | null;
+  primary_platform: string;
+  created_at: string;
+}
+
+export async function findOrCreateUser(
+  platform: "lastfm" | "spotify",
+  identifier: string
+): Promise<User> {
+  const col = platform === "lastfm" ? "lastfm_username" : "spotify_user_id";
+  const existing = await pool.query(
+    `SELECT * FROM users WHERE ${col} = $1`,
+    [identifier]
+  );
+  if (existing.rows.length > 0) return existing.rows[0];
+  const result = await pool.query(
+    `INSERT INTO users (${col}, primary_platform) VALUES ($1, $2) RETURNING *`,
+    [identifier, platform]
+  );
+  return result.rows[0];
+}
+
+export async function linkPlatform(
+  userId: number,
+  platform: "lastfm" | "spotify",
+  identifier: string
+): Promise<User> {
+  const col = platform === "lastfm" ? "lastfm_username" : "spotify_user_id";
+  const result = await pool.query(
+    `UPDATE users SET ${col} = $1 WHERE id = $2 RETURNING *`,
+    [identifier, userId]
+  );
+  return result.rows[0];
+}
+
+export async function getUserById(userId: number): Promise<User | null> {
+  const result = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+  return result.rows[0] || null;
+}
+
+// ============ LASTFM CACHE ============
+
+const CACHE_TTLS: Record<string, number> = {
+  top_artists: 6 * 60 * 60,
+  top_tracks: 6 * 60 * 60,
+  recent_tracks: 5 * 60,
+  loved_tracks: 60 * 60,
+  artist_info: 7 * 24 * 60 * 60,
+  track_info: 7 * 24 * 60 * 60,
+  user_info: 24 * 60 * 60,
+};
+
+function getCacheTTL(cacheKey: string): number {
+  for (const [prefix, ttl] of Object.entries(CACHE_TTLS)) {
+    if (cacheKey.startsWith(prefix)) return ttl;
+  }
+  return 60 * 60;
+}
+
+export async function getLastfmCache(
+  username: string,
+  cacheKey: string
+): Promise<any | null> {
+  const ttl = getCacheTTL(cacheKey);
+  const result = await pool.query(
+    `SELECT data FROM lastfm_cache
+     WHERE username = $1 AND cache_key = $2
+       AND cached_at > NOW() - INTERVAL '1 second' * $3`,
+    [username, cacheKey, ttl]
+  );
+  return result.rows[0]?.data || null;
+}
+
+export async function setLastfmCache(
+  username: string,
+  cacheKey: string,
+  data: any
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO lastfm_cache (username, cache_key, data, cached_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (username, cache_key) DO UPDATE SET
+       data = $3, cached_at = NOW()`,
+    [username, cacheKey, JSON.stringify(data)]
+  );
+}
+
+export async function cleanExpiredCache(): Promise<number> {
+  const result = await pool.query(
+    `DELETE FROM lastfm_cache WHERE cached_at < NOW() - INTERVAL '7 days'`
+  );
+  return result.rowCount || 0;
 }
