@@ -4,6 +4,18 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Music, ArrowLeft, Share2, Loader2 } from "lucide-react";
 import { usePlatform } from "../context/PlatformContext";
 
+// Kitsune expression images
+import imgShocked from "../images/Shocked.png";
+import imgDisgusted from "../images/Disgusted.png";
+import imgLaughing from "../images/Laughing.png";
+import imgJudging from "../images/Judging.png";
+import imgImpressed from "../images/Impressed.png";
+import imgCrying from "../images/Crying.png";
+import imgAngry from "../images/Angry.png";
+import imgConfused from "../images/Confused.png";
+import imgSarcastic from "../images/Sarcastic.png";
+import imgDead from "../images/Dead.png";
+
 interface ArtistData {
   name: string;
   image: string;
@@ -15,22 +27,21 @@ interface JudgeMessage {
   mood: string;
 }
 
-// Mood to emoji mapping — replace these with custom images/icons later
-const MOOD_EXPRESSIONS: Record<string, string> = {
-  shocked: "\u{1F631}",    // scream face
-  disgusted: "\u{1F922}",  // nauseated
-  laughing: "\u{1F602}",   // tears of joy
-  judging: "\u{1F928}",    // raised eyebrow
-  impressed: "\u{1F60E}",  // sunglasses
-  crying: "\u{1F62D}",     // loudly crying
-  angry: "\u{1F621}",      // pouting face
-  confused: "\u{1F615}",   // confused
-  sarcastic: "\u{1F612}",  // unamused
-  dead: "\u{1F480}",       // skull
+const MOOD_IMAGES: Record<string, string> = {
+  shocked: imgShocked,
+  disgusted: imgDisgusted,
+  laughing: imgLaughing,
+  judging: imgJudging,
+  impressed: imgImpressed,
+  crying: imgCrying,
+  angry: imgAngry,
+  confused: imgConfused,
+  sarcastic: imgSarcastic,
+  dead: imgDead,
 };
 
-function getMoodExpression(mood: string): string {
-  return MOOD_EXPRESSIONS[mood] || MOOD_EXPRESSIONS.judging;
+function getMoodImage(mood: string): string {
+  return MOOD_IMAGES[mood] || MOOD_IMAGES.judging;
 }
 
 function getLoadingPhrases(artists: ArtistData[]): string[] {
@@ -252,7 +263,7 @@ export default function Judge() {
             <span className="text-sm font-medium">Hub</span>
           </button>
           <div className="flex items-center gap-2">
-            <span className="text-xl">{getMoodExpression("judging")}</span>
+            <img src={imgJudging} alt="Kitsune" className="w-8 h-8 rounded-full object-cover" />
             <span className="font-bold text-sm">Critico Musical IA</span>
           </div>
           <button
@@ -281,9 +292,9 @@ export default function Judge() {
                   key={`avatar-${i}-${msg.mood}`}
                   initial={{ scale: 0.8 }}
                   animate={{ scale: 1 }}
-                  className="w-9 h-9 rounded-full bg-white/[0.07] border border-white/10 flex items-center justify-center text-lg"
+                  className="w-9 h-9 rounded-full overflow-hidden border border-white/10"
                 >
-                  {getMoodExpression(msg.mood)}
+                  <img src={getMoodImage(msg.mood)} alt={msg.mood} className="w-full h-full object-cover" />
                 </motion.div>
               </div>
               {/* Bubble */}
@@ -304,8 +315,8 @@ export default function Judge() {
             exit={{ opacity: 0 }}
             className="flex gap-3 items-end"
           >
-            <div className="w-9 h-9 rounded-full bg-white/[0.07] border border-white/10 flex items-center justify-center text-lg flex-shrink-0">
-              {getMoodExpression(currentMood)}
+            <div className="w-9 h-9 rounded-full overflow-hidden border border-white/10 flex-shrink-0">
+              <img src={getMoodImage(currentMood)} alt="typing" className="w-full h-full object-cover" />
             </div>
             <div className="bg-white/[0.07] border border-white/[0.08] rounded-2xl rounded-bl-md px-4 py-3">
               <div className="flex gap-1.5">
