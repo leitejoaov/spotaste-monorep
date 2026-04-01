@@ -20,8 +20,9 @@ export default function Hub() {
   const [artists, setArtists] = useState<ArtistData[]>([]);
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  const { hasSpotify, hasLastfm, isLoggedIn, setLastfmUser, setUserId, logout } = usePlatform();
+  const { hasSpotify, hasLastfm, isLoggedIn, lastfmUser, setLastfmUser, setUserId, getHeaders, logout } = usePlatform();
   const accessToken = getAccessToken();
+  const [lastfmArtists, setLastfmArtists] = useState<ArtistData[]>([]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -33,10 +34,31 @@ export default function Hub() {
       try {
         setArtists(JSON.parse(decodeURIComponent(raw)));
       } catch {
-        // Last.fm-only users may not have artists param — that's ok
+        // Last.fm-only users may not have artists param -- that's ok
       }
     }
   }, [searchParams, navigate, isLoggedIn]);
+
+  // Fetch Last.fm top artists when user has Last.fm
+  useEffect(() => {
+    if (!lastfmUser) return;
+
+    const API_URL = import.meta.env.VITE_API_URL || "";
+    fetch(`${API_URL}/api/lastfm/top-artists?username=${encodeURIComponent(lastfmUser)}`, {
+      headers: { ...getHeaders() },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.artists && Array.isArray(data.artists)) {
+          setLastfmArtists(data.artists);
+          // If no Spotify artists from URL, use Last.fm ones as main artists
+          if (!searchParams.get("artists")) {
+            setArtists(data.artists);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [lastfmUser, searchParams, getHeaders]);
 
   if (!isLoggedIn) return null;
 
@@ -185,12 +207,35 @@ export default function Hub() {
             transition={{ duration: 0.6 }}
           >
             <h2 className="text-sm font-semibold uppercase tracking-widest text-spotify-green mb-6">
-              Seus Top Artistas
+              {hasSpotify ? "Seus Top Artistas" : "Top Artistas (Last.fm)"}
             </h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
               {artists.map((artist, i) => (
                 <ArtistCard
                   key={artist.name}
+                  artist={artist}
+                  index={i}
+                  onClick={() => setSelectedArtist(artist.name)}
+                />
+              ))}
+            </div>
+          </motion.section>
+        )}
+
+        {/* Show Last.fm artists separately when we also have Spotify artists */}
+        {hasSpotify && lastfmArtists.length > 0 && artists.length > 0 && (
+          <motion.section
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15, duration: 0.6 }}
+          >
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-[#d51007] mb-6">
+              Top Artistas (Last.fm)
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+              {lastfmArtists.map((artist, i) => (
+                <ArtistCard
+                  key={`lfm-${artist.name}`}
                   artist={artist}
                   index={i}
                   onClick={() => setSelectedArtist(artist.name)}

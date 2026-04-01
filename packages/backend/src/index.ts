@@ -543,6 +543,37 @@ app.get("/api/playlist/:id", async (req, res) => {
   }
 });
 
+app.get("/api/lastfm/top-artists", async (req, res) => {
+  const username = (req.query.username as string) || (req.headers["x-lastfm-user"] as string);
+  if (!username) {
+    res.status(400).json({ error: "username required" });
+    return;
+  }
+
+  try {
+    const period = (req.query.period as string) || "3month";
+    const artists = await lfmGetTopArtists(username, period as any, 10);
+
+    // Enrich with tags from Last.fm
+    const enriched = await Promise.all(
+      artists.map(async (a) => {
+        const info = await lfmGetArtistInfo(a.name);
+        return {
+          name: a.name,
+          image: a.image || info?.image || "",
+          genres: info?.tags?.slice(0, 3) || [],
+          playcount: a.playcount,
+        };
+      })
+    );
+
+    res.json({ artists: enriched });
+  } catch (err: any) {
+    console.error("Last.fm top artists error:", err.message);
+    res.status(500).json({ error: "Failed to get top artists" });
+  }
+});
+
 app.get("/api/artist-details", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
 
