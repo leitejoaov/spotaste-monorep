@@ -522,9 +522,17 @@ if (process.env.NODE_ENV === "production") {
 async function start() {
   await initDb();
   startWorker();
-  app.listen(config.port, "0.0.0.0", () => {
+  const server = app.listen(config.port, "0.0.0.0", () => {
     console.log(`🎵 Spotaste API running on http://127.0.0.1:${config.port}`);
   });
+
+  const shutdown = () => {
+    console.log("\nShutting down...");
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(1), 3000);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 start().catch((err) => {
