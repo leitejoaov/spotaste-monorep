@@ -551,7 +551,7 @@ app.get("/api/lastfm/top-artists", async (req, res) => {
   }
 
   try {
-    const period = (req.query.period as string) || "3month";
+    const period = (req.query.period as string) || "overall";
     const artists = await lfmGetTopArtists(username, period as any, 10);
 
     // Enrich with tags from Last.fm

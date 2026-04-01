@@ -37,7 +37,7 @@ router.post("/auth/lastfm/login", async (req, res) => {
 });
 
 async function enqueueLastfmTopTracks(username: string) {
-  const tracks = await getTopTracks(username, "3month", 50);
+  const tracks = await getTopTracks(username, "overall", 50);
   let newCount = 0;
   for (const track of tracks) {
     const trackId = `lastfm_${track.name}_${track.artist}`.slice(0, 60);
