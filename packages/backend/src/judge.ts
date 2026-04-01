@@ -3,12 +3,33 @@ import { config } from "./config.js";
 
 const anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
 
+function parseMessages(text: string): string[] {
+  try {
+    // Try parsing as JSON array directly
+    const parsed = JSON.parse(text.trim());
+    if (Array.isArray(parsed) && parsed.every((m) => typeof m === "string")) {
+      return parsed.filter((m) => m.trim().length > 0);
+    }
+  } catch {
+    // Try extracting JSON from markdown code blocks
+    const match = text.match(/\[[\s\S]*\]/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (Array.isArray(parsed)) return parsed.filter((m) => typeof m === "string" && m.trim());
+      } catch { /* fall through */ }
+    }
+  }
+  // Fallback: split by paragraphs
+  return text.split("\n").filter((p) => p.trim().length > 0);
+}
+
 interface ArtistInput {
   name: string;
   genres: string[];
 }
 
-export async function getMusicTasteAnalysis(artists: ArtistInput[]): Promise<string> {
+export async function getMusicTasteAnalysis(artists: ArtistInput[]): Promise<string[]> {
   const artistSummary = artists
     .map((a) => `${a.name} (genres: ${a.genres.join(", ")})`)
     .join("\n");
@@ -30,7 +51,9 @@ REGRAS:
 - 4-5 paragrafos, cada um com uma pegada diferente
 - Termine com um veredito final devastador mas que a pessoa vai querer compartilhar
 
-FORMATO: texto corrido, sem titulos, sem bullet points. Como se fosse um textao de twitter/reddit.`,
+FORMATO: Responda APENAS com um JSON array de strings. Cada string e uma mensagem curta separada (1-3 frases), como se voce estivesse mandando mensagens num chat. 5-8 mensagens no total. Exemplo de formato:
+["primeira msg aqui", "segunda msg", "terceira msg"]
+Nao inclua nada fora do JSON. Sem markdown, sem code blocks. Apenas o array JSON puro.`,
     messages: [
       {
         role: "user",
@@ -40,15 +63,15 @@ FORMATO: texto corrido, sem titulos, sem bullet points. Como se fosse um textao 
   });
 
   const block = message.content[0];
-  if (block.type === "text") return block.text;
-  throw new Error("Unexpected response type from Claude");
+  if (block.type !== "text") throw new Error("Unexpected response type from Claude");
+  return parseMessages(block.text);
 }
 
 export async function getEnrichedMusicTasteAnalysis(
   artists: { name: string; genres: string[]; playcount?: number }[],
   totalScrobbles?: number,
   memberSince?: number
-): Promise<string> {
+): Promise<string[]> {
   const artistList = artists
     .map(
       (a) =>
@@ -75,7 +98,11 @@ Voce recebe os artistas mais ouvidos do usuario COM a quantidade de vezes que el
 Use esses numeros pra fazer piadas ESPECIFICAS (ex: "tu ouviu X 847 vezes, isso e uma vez a cada 3 horas, ta tudo bem?").
 Quanto maior o numero, mais zoa. Se o total de scrobbles for absurdo, zoa também.
 Usa girias gen-z brasileiras (kkkkk, ne possivel, mlk, mano, vey).
-Tom: zoeiro, memes, comparacoes absurdas. 4-5 paragrafos. Sem markdown, texto puro.`,
+Tom: zoeiro, memes, comparacoes absurdas.
+
+FORMATO: Responda APENAS com um JSON array de strings. Cada string e uma mensagem curta separada (1-3 frases), como se voce estivesse mandando mensagens num chat. 5-8 mensagens no total. Exemplo de formato:
+["primeira msg aqui", "segunda msg", "terceira msg"]
+Nao inclua nada fora do JSON. Sem markdown, sem code blocks. Apenas o array JSON puro.`,
     messages: [
       {
         role: "user",
@@ -84,5 +111,5 @@ Tom: zoeiro, memes, comparacoes absurdas. 4-5 paragrafos. Sem markdown, texto pu
     ],
   });
 
-  return (msg.content[0] as any).text;
+  return parseMessages((msg.content[0] as any).text);
 }
