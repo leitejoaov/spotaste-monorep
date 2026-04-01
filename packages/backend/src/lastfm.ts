@@ -156,6 +156,37 @@ async function cachedGet(
   return data;
 }
 
+// ============ IMAGE FALLBACK (Deezer) ============
+
+async function resolveArtistImage(
+  name: string,
+  lastfmImage: string
+): Promise<string> {
+  // If Last.fm provided a valid image, use it
+  if (lastfmImage && !lastfmImage.includes("2a96cbd8b46e442fc41c2b86b821562f")) {
+    return lastfmImage;
+  }
+
+  // Fallback to Deezer (free, no auth needed)
+  const cacheKey = `deezer_img_${name.toLowerCase()}`;
+  const cached = await getLastfmCache("_global", cacheKey);
+  if (cached?.url) return cached.url;
+
+  try {
+    const { data } = await axios.get("https://api.deezer.com/search/artist", {
+      params: { q: name, limit: 1 },
+      timeout: 5000,
+    });
+    const img = data?.data?.[0]?.picture_big || data?.data?.[0]?.picture_medium || "";
+    if (img) {
+      await setLastfmCache("_global", cacheKey, { url: img });
+    }
+    return img;
+  } catch {
+    return lastfmImage || "";
+  }
+}
+
 // ============ API FUNCTIONS ============
 
 export async function validateUser(
@@ -198,7 +229,7 @@ export async function getTopArtists(
   });
 
   const artists = normalizeArray(data.topartists?.artist);
-  return artists.map((a: any, i: number) => ({
+  const mapped = artists.map((a: any, i: number) => ({
     name: a.name || "",
     playcount: Number(a.playcount) || 0,
     mbid: a.mbid || "",
@@ -206,6 +237,15 @@ export async function getTopArtists(
     image: extractImage(a.image),
     rank: Number(a["@attr"]?.rank) || i + 1,
   }));
+
+  // Resolve images via Deezer fallback for artists with missing images
+  const resolved = await Promise.all(
+    mapped.map(async (a) => ({
+      ...a,
+      image: await resolveArtistImage(a.name, a.image),
+    }))
+  );
+  return resolved;
 }
 
 export async function getTopTracks(
@@ -304,11 +344,12 @@ export async function getArtistInfo(
     const a = data.artist;
     const tags = normalizeArray(a.tags?.tag);
     const similar = normalizeArray(a.similar?.artist);
+    const image = await resolveArtistImage(a.name || artist, extractImage(a.image));
     return {
       name: a.name || "",
       mbid: a.mbid || "",
       url: a.url || "",
-      image: extractImage(a.image),
+      image,
       listeners: Number(a.stats?.listeners) || 0,
       playcount: Number(a.stats?.playcount) || 0,
       tags: tags.map((tag: any) => tag.name || ""),
