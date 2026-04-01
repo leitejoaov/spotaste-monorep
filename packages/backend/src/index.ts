@@ -105,60 +105,97 @@ app.post("/api/judge", claudeLimiter, async (req, res) => {
 
 app.get("/api/analyze-taste", claudeLimiter, async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token) {
-    res.status(401).json({ error: "Missing access token" });
+  const lastfmUser = req.headers["x-lastfm-user"] as string | undefined;
+
+  if (!token && !lastfmUser) {
+    res.status(401).json({ error: "Missing access token or Last.fm user" });
     return;
   }
 
   try {
-    const userId = await getSpotifyUserId(token);
-    const cached = await getCachedAnalysis(userId);
+    // Determine cache key
+    let cacheKey: string;
+    if (lastfmUser) {
+      cacheKey = `lastfm_${lastfmUser}`;
+    } else {
+      cacheKey = await getSpotifyUserId(token!);
+    }
+
+    const cached = await getCachedAnalysis(cacheKey);
 
     if (cached) {
-      console.log("[analyze-taste] cache hit for", userId);
-      const tracks = await getTopTracks(token);
-      for (let i = 0; i < cached.tracks.length && i < tracks.length; i++) {
-        cached.tracks[i].albumImage = tracks[i].album?.images?.[1]?.url
-          ?? tracks[i].album?.images?.[0]?.url ?? null;
-        cached.tracks[i].spotifyId = tracks[i].id;
+      console.log("[analyze-taste] cache hit for", cacheKey);
+      // Refresh with live data if Spotify token available
+      if (token) {
+        const tracks = await getTopTracks(token);
+        for (let i = 0; i < cached.tracks.length && i < tracks.length; i++) {
+          cached.tracks[i].albumImage = tracks[i].album?.images?.[1]?.url
+            ?? tracks[i].album?.images?.[0]?.url ?? null;
+          cached.tracks[i].spotifyId = tracks[i].id;
 
-        // Refresh Essentia data (may have been analyzed after cache)
-        const real = await getTrackFeatures(tracks[i].id);
-        if (real) {
-          cached.tracks[i].essentia = {
-            bpm: real.bpm,
-            key: real.key,
-            mode: real.mode,
-            energy: real.energy,
-            danceability: real.danceability,
-            loudness: real.loudness,
-            mood_happy: real.mood_happy,
-            mood_sad: real.mood_sad,
-            mood_aggressive: real.mood_aggressive,
-            mood_relaxed: real.mood_relaxed,
-            mood_party: real.mood_party,
-            voice_instrumental: real.voice_instrumental,
-            mood_acoustic: real.mood_acoustic,
-          };
+          const real = await getTrackFeatures(tracks[i].id);
+          if (real) {
+            cached.tracks[i].essentia = {
+              bpm: real.bpm,
+              key: real.key,
+              mode: real.mode,
+              energy: real.energy,
+              danceability: real.danceability,
+              loudness: real.loudness,
+              mood_happy: real.mood_happy,
+              mood_sad: real.mood_sad,
+              mood_aggressive: real.mood_aggressive,
+              mood_relaxed: real.mood_relaxed,
+              mood_party: real.mood_party,
+              voice_instrumental: real.voice_instrumental,
+              mood_acoustic: real.mood_acoustic,
+            };
+          }
         }
       }
       res.json(cached);
       return;
     }
 
-    console.log("[analyze-taste] cache miss for", userId);
-    const tracks = await getTopTracks(token);
-    const analysis = await analyzeTaste(tracks);
+    console.log("[analyze-taste] cache miss for", cacheKey);
+
+    let spotifyTracks: any[];
+
+    if (lastfmUser) {
+      // Use Last.fm top tracks as data source
+      const lfmTracks = await lfmGetTopTracks(lastfmUser, "overall", 20);
+      // Enrich with tags from getTrackInfo
+      spotifyTracks = await Promise.all(
+        lfmTracks.map(async (lt) => {
+          const info = await lfmGetTrackInfo(lt.artist, lt.name, lastfmUser);
+          return {
+            id: `lastfm_${lt.name}_${lt.artist}`.slice(0, 60),
+            name: lt.name,
+            artists: [{ name: lt.artist }],
+            album: {
+              name: info?.album || "",
+              images: lt.image ? [{ url: lt.image }] : [],
+            },
+            popularity: Math.min(100, Math.round(lt.playcount / 10)),
+            tags: info?.tags || [],
+          };
+        })
+      );
+    } else {
+      spotifyTracks = await getTopTracks(token!);
+    }
+
+    const analysis = await analyzeTaste(spotifyTracks);
 
     // Enrich with album images and real Essentia data
-    for (let i = 0; i < analysis.tracks.length && i < tracks.length; i++) {
+    for (let i = 0; i < analysis.tracks.length && i < spotifyTracks.length; i++) {
       const t = analysis.tracks[i] as any;
-      t.albumImage = tracks[i].album?.images?.[1]?.url
-        ?? tracks[i].album?.images?.[0]?.url ?? null;
-      t.spotifyId = tracks[i].id;
+      t.albumImage = spotifyTracks[i].album?.images?.[1]?.url
+        ?? spotifyTracks[i].album?.images?.[0]?.url ?? null;
+      t.spotifyId = spotifyTracks[i].id;
 
       // Attach real Essentia features if available
-      const real = await getTrackFeatures(tracks[i].id);
+      const real = await getTrackFeatures(spotifyTracks[i].id);
       if (real) {
         t.essentia = {
           bpm: real.bpm,
@@ -178,7 +215,7 @@ app.get("/api/analyze-taste", claudeLimiter, async (req, res) => {
       }
     }
 
-    await setCachedAnalysis(userId, analysis);
+    await setCachedAnalysis(cacheKey, analysis);
     res.json(analysis);
   } catch (error: any) {
     console.error("[analyze-taste] ERROR:", error);
