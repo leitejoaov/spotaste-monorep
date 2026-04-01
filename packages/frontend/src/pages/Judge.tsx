@@ -287,12 +287,12 @@ export default function Judge() {
               className="flex gap-3 items-end"
             >
               {/* Avatar with mood expression */}
-              <div className="flex-shrink-0 w-9">
+              <div className="flex-shrink-0 w-14">
                 <motion.div
                   key={`avatar-${i}-${msg.mood}`}
                   initial={{ scale: 0.8 }}
                   animate={{ scale: 1 }}
-                  className="w-9 h-9 rounded-full overflow-hidden border border-white/10"
+                  className="w-14 h-14 rounded-full overflow-hidden border border-white/10"
                 >
                   <img src={getMoodImage(msg.mood)} alt={msg.mood} className="w-full h-full object-cover" />
                 </motion.div>
@@ -315,7 +315,7 @@ export default function Judge() {
             exit={{ opacity: 0 }}
             className="flex gap-3 items-end"
           >
-            <div className="w-9 h-9 rounded-full overflow-hidden border border-white/10 flex-shrink-0">
+            <div className="w-14 h-14 rounded-full overflow-hidden border border-white/10 flex-shrink-0">
               <img src={getMoodImage(currentMood)} alt="typing" className="w-full h-full object-cover" />
             </div>
             <div className="bg-white/[0.07] border border-white/[0.08] rounded-2xl rounded-bl-md px-4 py-3">
