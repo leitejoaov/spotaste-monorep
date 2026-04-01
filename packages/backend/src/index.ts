@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
+import path from "path";
+import { fileURLToPath } from "url";
 import { config } from "./config.js";
 import { authRouter } from "./routes/auth.js";
 import { getTopTracks, getSpotifyUserId, getTrackDetails, searchTracks, createPlaylist, addTracksToPlaylist, searchArtist, getArtistTopTracks } from "./spotify.js";
@@ -501,6 +503,21 @@ app.get("/api/artist-details", async (req, res) => {
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+// Public routes — redirect to hash router paths
+app.get("/privacy", (_req, res) => {
+  res.redirect("/#/privacy");
+});
+
+// Production: serve frontend static files
+if (process.env.NODE_ENV === "production") {
+  const frontendDist = path.resolve(process.cwd(), "../frontend/dist");
+  console.log("[prod] serving static files from:", frontendDist);
+  app.use(express.static(frontendDist));
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(frontendDist, "index.html"));
+  });
+}
 
 async function start() {
   await initDb();
