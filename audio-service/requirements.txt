@@ -1,0 +1,4 @@
+essentia-tensorflow
+flask
+requests
+yt-dlp

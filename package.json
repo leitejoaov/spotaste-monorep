@@ -1,0 +1,12 @@
+{
+  "name": "spotaste",
+  "private": true,
+  "scripts": {
+    "dev:frontend": "pnpm --filter @spotaste/frontend dev",
+    "dev:backend": "pnpm --filter @spotaste/backend dev",
+    "dev": "pnpm run dev:backend & pnpm run dev:frontend",
+    "build:frontend": "pnpm --filter @spotaste/frontend build",
+    "build:backend": "pnpm --filter @spotaste/backend build",
+    "build": "pnpm run build:backend && pnpm run build:frontend"
+  }
+}
