@@ -10,6 +10,29 @@ interface ArtistData {
   genres: string[];
 }
 
+interface JudgeMessage {
+  text: string;
+  mood: string;
+}
+
+// Mood to emoji mapping — replace these with custom images/icons later
+const MOOD_EXPRESSIONS: Record<string, string> = {
+  shocked: "\u{1F631}",    // scream face
+  disgusted: "\u{1F922}",  // nauseated
+  laughing: "\u{1F602}",   // tears of joy
+  judging: "\u{1F928}",    // raised eyebrow
+  impressed: "\u{1F60E}",  // sunglasses
+  crying: "\u{1F62D}",     // loudly crying
+  angry: "\u{1F621}",      // pouting face
+  confused: "\u{1F615}",   // confused
+  sarcastic: "\u{1F612}",  // unamused
+  dead: "\u{1F480}",       // skull
+};
+
+function getMoodExpression(mood: string): string {
+  return MOOD_EXPRESSIONS[mood] || MOOD_EXPRESSIONS.judging;
+}
+
 function getLoadingPhrases(artists: ArtistData[]): string[] {
   const names = artists.map((a) => a.name);
   const generic = [
@@ -27,7 +50,6 @@ function getLoadingPhrases(artists: ArtistData[]): string[] {
     `${name}? Serio mesmo?`,
     `Ainda escutando ${name} em ${new Date().getFullYear()}...`,
     `${name} no top? A IA esta chocada.`,
-    `Anotando: esse ser humano escuta ${name} de livre e espontanea vontade.`,
   ]);
 
   return [...generic, ...personalized].sort(() => Math.random() - 0.5);
@@ -38,7 +60,7 @@ export default function Judge() {
   const navigate = useNavigate();
 
   const [artists, setArtists] = useState<ArtistData[]>([]);
-  const [messages, setMessages] = useState<string[]>([]);
+  const [messages, setMessages] = useState<JudgeMessage[]>([]);
   const [visibleCount, setVisibleCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -64,10 +86,21 @@ export default function Judge() {
       }
 
       const data = await res.json();
-      // Backend now returns string[] (array of messages)
-      const msgs: string[] = Array.isArray(data.analysis)
-        ? data.analysis
-        : data.analysis.split("\n").filter((p: string) => p.trim());
+      // Backend returns JudgeMessage[] (array of {text, mood})
+      let msgs: JudgeMessage[];
+      if (Array.isArray(data.analysis)) {
+        msgs = data.analysis.map((m: any) =>
+          typeof m === "string"
+            ? { text: m, mood: "judging" }
+            : { text: m.text || m, mood: m.mood || "judging" }
+        );
+      } else {
+        // Fallback for old string format
+        msgs = data.analysis
+          .split("\n")
+          .filter((p: string) => p.trim())
+          .map((p: string) => ({ text: p, mood: "judging" }));
+      }
       setMessages(msgs);
     } catch (err: any) {
       setError(err.message || "Algo deu errado.");
@@ -101,44 +134,42 @@ export default function Judge() {
     return () => clearInterval(interval);
   }, [loading, phrases]);
 
-  // Progressive message reveal
+  // Progressive message reveal — first message
   useEffect(() => {
     if (messages.length === 0 || loading) return;
-
-    // Show first message immediately
     setTyping(true);
-    const firstTimeout = setTimeout(() => {
+    const timeout = setTimeout(() => {
       setVisibleCount(1);
       setTyping(false);
     }, 800);
-
-    return () => clearTimeout(firstTimeout);
+    return () => clearTimeout(timeout);
   }, [messages, loading]);
 
+  // Progressive message reveal — subsequent messages
   useEffect(() => {
     if (visibleCount === 0 || visibleCount >= messages.length) return;
-
-    // Show typing indicator, then reveal next message
     setTyping(true);
-    const delay = 1000 + Math.random() * 1500; // 1-2.5s random delay
+    const delay = 800 + Math.random() * 1200; // 0.8-2s
     const timeout = setTimeout(() => {
       setVisibleCount((prev) => prev + 1);
       setTyping(false);
     }, delay);
-
     return () => clearTimeout(timeout);
   }, [visibleCount, messages.length]);
 
   const handleShare = async () => {
     if (messages.length === 0) return;
     try {
-      await navigator.clipboard.writeText(messages.join("\n\n"));
+      await navigator.clipboard.writeText(messages.map((m) => m.text).join("\n\n"));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
+
+  // Current mood for the typing indicator
+  const currentMood = visibleCount < messages.length
+    ? messages[visibleCount]?.mood || "judging"
+    : messages[messages.length - 1]?.mood || "judging";
 
   // Loading screen
   if (loading) {
@@ -181,7 +212,7 @@ export default function Judge() {
                 {a.image ? (
                   <img src={a.image} alt={a.name} className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full bg-spotify-gray flex items-center justify-center text-xs">
+                  <div className="w-full h-full bg-spotify-gray flex items-center justify-center">
                     <Music size={16} className="text-spotify-text" />
                   </div>
                 )}
@@ -221,9 +252,7 @@ export default function Judge() {
             <span className="text-sm font-medium">Hub</span>
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-spotify-green/20 flex items-center justify-center">
-              <Music className="text-spotify-green" size={16} />
-            </div>
+            <span className="text-xl">{getMoodExpression("judging")}</span>
             <span className="font-bold text-sm">Critico Musical IA</span>
           </div>
           <button
@@ -237,7 +266,6 @@ export default function Judge() {
       </header>
 
       <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-3 overflow-y-auto">
-        {/* Chat messages */}
         <AnimatePresence>
           {messages.slice(0, visibleCount).map((msg, i) => (
             <motion.div
@@ -247,20 +275,21 @@ export default function Judge() {
               transition={{ duration: 0.3, ease: "easeOut" }}
               className="flex gap-3 items-end"
             >
-              {/* Avatar (only on first message or after gap) */}
-              <div className="flex-shrink-0 w-8">
-                {(i === 0 || i === visibleCount - 1) ? (
-                  <div className="w-8 h-8 rounded-full bg-spotify-green/20 flex items-center justify-center">
-                    <Music size={14} className="text-spotify-green" />
-                  </div>
-                ) : (
-                  <div className="w-8" />
-                )}
+              {/* Avatar with mood expression */}
+              <div className="flex-shrink-0 w-9">
+                <motion.div
+                  key={`avatar-${i}-${msg.mood}`}
+                  initial={{ scale: 0.8 }}
+                  animate={{ scale: 1 }}
+                  className="w-9 h-9 rounded-full bg-white/[0.07] border border-white/10 flex items-center justify-center text-lg"
+                >
+                  {getMoodExpression(msg.mood)}
+                </motion.div>
               </div>
               {/* Bubble */}
               <div className="bg-white/[0.07] backdrop-blur-sm border border-white/[0.08] rounded-2xl rounded-bl-md px-4 py-3 max-w-[85%]">
                 <p className="text-[15px] leading-relaxed text-gray-200">
-                  {msg}
+                  {msg.text}
                 </p>
               </div>
             </motion.div>
@@ -275,8 +304,8 @@ export default function Judge() {
             exit={{ opacity: 0 }}
             className="flex gap-3 items-end"
           >
-            <div className="w-8 h-8 rounded-full bg-spotify-green/20 flex items-center justify-center flex-shrink-0">
-              <Music size={14} className="text-spotify-green" />
+            <div className="w-9 h-9 rounded-full bg-white/[0.07] border border-white/10 flex items-center justify-center text-lg flex-shrink-0">
+              {getMoodExpression(currentMood)}
             </div>
             <div className="bg-white/[0.07] border border-white/[0.08] rounded-2xl rounded-bl-md px-4 py-3">
               <div className="flex gap-1.5">
@@ -300,7 +329,7 @@ export default function Judge() {
           </motion.div>
         )}
 
-        {/* All messages revealed - footer */}
+        {/* All revealed — footer */}
         {visibleCount >= messages.length && messages.length > 0 && (
           <motion.div
             initial={{ opacity: 0 }}
