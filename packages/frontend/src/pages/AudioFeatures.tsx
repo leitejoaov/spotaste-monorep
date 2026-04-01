@@ -286,7 +286,7 @@ export default function AudioFeatures() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6"
+          className="relative z-30 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 overflow-visible"
         >
           <label className="text-sm font-semibold uppercase tracking-widest text-spotify-green mb-4 block">
             Adicionar Track
