@@ -8,6 +8,7 @@ import Library from "./pages/Library";
 import TextToPlaylist from "./pages/TextToPlaylist";
 import PlaylistHistory from "./pages/PlaylistHistory";
 import AuthCallback from "./pages/AuthCallback";
+import Privacy from "./pages/Privacy";
 import Sidebar from "./components/Sidebar";
 import { getAccessToken } from "./hooks/useAuth";
 
@@ -32,6 +33,7 @@ function AppContent() {
         <Route path="/library" element={<Library />} />
         <Route path="/text-to-playlist" element={<TextToPlaylist />} />
         <Route path="/playlist-history" element={<PlaylistHistory />} />
+      <Route path="/privacy" element={<Privacy />} />
       </Routes>
     </>
   );
