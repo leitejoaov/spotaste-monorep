@@ -137,6 +137,27 @@ export interface QueueItem {
   artist_name: string;
 }
 
+export async function trackExistsByName(
+  trackName: string,
+  artistName: string
+): Promise<boolean> {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM track_features
+     WHERE LOWER(track_name) = LOWER($1) AND LOWER(artist_name) = LOWER($2)
+     LIMIT 1`,
+    [trackName, artistName]
+  );
+  if (rows.length > 0) return true;
+  // Also check queue
+  const { rows: queueRows } = await pool.query(
+    `SELECT 1 FROM analysis_queue
+     WHERE LOWER(track_name) = LOWER($1) AND LOWER(artist_name) = LOWER($2)
+     LIMIT 1`,
+    [trackName, artistName]
+  );
+  return queueRows.length > 0;
+}
+
 export async function addToQueue(
   spotifyId: string,
   trackName: string,

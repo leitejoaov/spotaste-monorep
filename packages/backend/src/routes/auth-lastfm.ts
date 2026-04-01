@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { validateUser, getTopTracks } from "../lastfm.js";
-import { findOrCreateUser, addToQueue, getTrackFeatures } from "../db.js";
+import { findOrCreateUser, addToQueue, trackExistsByName } from "../db.js";
 
 const router = Router();
 
@@ -37,19 +37,19 @@ router.post("/auth/lastfm/login", async (req, res) => {
 });
 
 async function enqueueLastfmTopTracks(username: string) {
-  const tracks = await getTopTracks(username, "overall", 50);
+  const tracks = await getTopTracks(username, "overall", 100);
   let newCount = 0;
   for (const track of tracks) {
-    const trackId = `lastfm_${track.name}_${track.artist}`.slice(0, 60);
-    const existing = await getTrackFeatures(trackId);
-    if (!existing) {
+    // Dedup by name+artist (case-insensitive) across both platforms
+    const exists = await trackExistsByName(track.name, track.artist);
+    if (!exists) {
+      const trackId = `lastfm_${track.name}_${track.artist}`.slice(0, 60);
       await addToQueue(trackId, track.name, track.artist);
       newCount++;
     }
-    if (newCount >= 20) break;
   }
   if (newCount > 0) {
-    console.log(`Enqueued ${newCount} Last.fm tracks for ${username}`);
+    console.log(`Enqueued ${newCount} Last.fm tracks for ${username} (of ${tracks.length} top tracks)`);
   }
 }
 
