@@ -112,6 +112,48 @@ export interface VibeProfile {
   playlist_name: string;
 }
 
+export interface ArtistExtraction {
+  mode: "artists";
+  artists: string[];
+  playlist_name: string;
+}
+
+export async function detectAndExtractArtists(description: string): Promise<ArtistExtraction | null> {
+  const message = await anthropic.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 500,
+    system: "Voce analisa se um texto descreve uma LISTA DE ARTISTAS/BANDAS ou se descreve uma VIBE/MOOD. Responda APENAS com JSON valido, sem markdown.",
+    messages: [
+      {
+        role: "user",
+        content: `Analise o texto abaixo. Se o usuario esta listando nomes de artistas ou bandas (ex: "Tame Impala, Arctic Monkeys e Radiohead" ou "quero musicas do Laufey e Baka Gaijin"), extraia os nomes.
+
+Se o texto descreve uma vibe/mood/momento (ex: "musica pra estudar" ou "rock anos 80 pra malhar"), retorne null.
+
+Texto: "${description}"
+
+Responda com:
+- Se for lista de artistas: {"mode":"artists","artists":["Nome1","Nome2"],"playlist_name":"nome criativo curto em pt-br"}
+- Se for vibe/mood: {"mode":"vibe"}`,
+      },
+    ],
+  });
+
+  const block = message.content[0];
+  if (block.type !== "text") return null;
+
+  try {
+    const raw = block.text.match(/\{[\s\S]*\}/)?.[0] || block.text;
+    const parsed = JSON.parse(raw);
+    if (parsed.mode === "artists" && Array.isArray(parsed.artists) && parsed.artists.length > 0) {
+      return parsed as ArtistExtraction;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function generateVibeProfile(description: string): Promise<VibeProfile> {
   const message = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",

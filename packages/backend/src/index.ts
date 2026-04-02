@@ -10,11 +10,11 @@ import ytmusicAuthRouter from "./routes/auth-ytmusic.js";
 import settingsRouter from "./routes/settings.js";
 import { getTopTracks, getSpotifyUserId, getTrackDetails, searchTracks, createPlaylist, addTracksToPlaylist, searchArtist, getArtistTopTracks } from "./spotify.js";
 import { getMusicTasteAnalysis, getEnrichedMusicTasteAnalysis } from "./judge.js";
-import { getTopArtists as lfmGetTopArtists, validateUser as lfmValidateUser, getTopTracks as lfmGetTopTracks, getTrackInfo as lfmGetTrackInfo, searchTrack as lfmSearchTrack, getArtistInfo as lfmGetArtistInfo, getArtistTopTracks as lfmGetArtistTopTracks, resolveTrackImage, resolveArtistImage } from "./lastfm.js";
-import { analyzeTaste, generateVibeProfile } from "./claude.js";
+import { getTopArtists as lfmGetTopArtists, validateUser as lfmValidateUser, getTopTracks as lfmGetTopTracks, getTrackInfo as lfmGetTrackInfo, searchTrack as lfmSearchTrack, getArtistInfo as lfmGetArtistInfo, getArtistTopTracks as lfmGetArtistTopTracks, getSimilarArtists as lfmGetSimilarArtists, resolveTrackImage, resolveArtistImage } from "./lastfm.js";
+import { analyzeTaste, generateVibeProfile, detectAndExtractArtists } from "./claude.js";
 import { getCachedAnalysis, setCachedAnalysis } from "./cache.js";
 import { analyzeWithEssentia } from "./essentia.js";
-import { initDb, getTrackFeatures, saveTrackFeatures, getQueueStatus, getAllTrackFeatures, addToQueue, savePlaylist, getPlaylistsByUser, getPlaylistWithTracks, rateTrack, getCachedJudge, setCachedJudge, hashArtists, trackExistsByName } from "./db.js";
+import { initDb, getTrackFeatures, saveTrackFeatures, getQueueStatus, getAllTrackFeatures, addToQueue, savePlaylist, getPlaylistsByUser, getPublicPlaylists, getPlaylistWithTracks, rateTrack, getCachedJudge, setCachedJudge, hashArtists, trackExistsByName } from "./db.js";
 import { startWorker } from "./worker.js";
 import { matchTracks } from "./matcher.js";
 import { searchYTTracks, getYTTopTracks, getYTUserInfo, createYTPlaylist, addToYTPlaylist } from "./ytmusic.js";
@@ -463,7 +463,7 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
   const ytTokenB64 = req.headers["x-ytmusic-token"] as string | undefined;
   const userIdHeader = req.headers["x-user-id"] as string | undefined;
 
-  const { description, platform = "spotify" } = req.body;
+  const { description, platform = "spotify", is_public = true } = req.body;
 
   if (platform === "spotify" && !token) {
     res.status(401).json({ error: "Missing Spotify access token" });
@@ -491,22 +491,101 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
 
     console.log(`[playlist] generating for "${description}" on ${platform} (user: ${userId})`);
 
-    // 1. Generate vibe profile via Claude
-    const vibeProfile = await generateVibeProfile(description.trim());
-    console.log(`[playlist] vibe profile: ${vibeProfile.playlist_name}`);
+    // 0. Detect if the description is a list of artists
+    const artistDetection = await detectAndExtractArtists(description.trim());
 
-    // 2. Match tracks from database
-    const { tracks: allTracks } = await getAllTrackFeatures(undefined, 1, 100000);
-    const scored = matchTracks(vibeProfile, allTracks);
+    let scored: { track: any; score: number }[];
+    let vibeProfile: any;
+    let playlistName: string;
 
-    if (scored.length < 5) {
-      res.status(422).json({
-        error: "Poucas musicas no banco para essa vibe. Tente novamente quando mais musicas forem analisadas.",
-      });
-      return;
+    if (artistDetection) {
+      // ARTIST MODE: fetch top tracks directly from named artists
+      console.log(`[playlist] artist mode: ${artistDetection.artists.join(", ")}`);
+      playlistName = artistDetection.playlist_name;
+      vibeProfile = null;
+
+      const artistTracks: { spotify_id: string; track_name: string; artist_name: string }[] = [];
+
+      for (const artistName of artistDetection.artists.slice(0, 10)) {
+        try {
+          // Try Spotify first if we have a token
+          if (platform === "spotify" && token) {
+            const artist = await searchArtist(token, artistName);
+            if (artist) {
+              const topTracks = await getArtistTopTracks(token, artist.id);
+              for (const t of topTracks.slice(0, 5)) {
+                artistTracks.push({
+                  spotify_id: t.id,
+                  track_name: t.name,
+                  artist_name: t.artists[0]?.name || artistName,
+                });
+              }
+              continue;
+            }
+          }
+          // Try YouTube Music search if platform is ytmusic
+          if (platform === "ytmusic") {
+            const ytToken = ytTokenB64 ? JSON.parse(Buffer.from(ytTokenB64, "base64").toString("utf-8")) : null;
+            const ytResults = await searchYTTracks(ytToken, artistName, 5);
+            if (ytResults.length > 0) {
+              for (const t of ytResults) {
+                artistTracks.push({
+                  spotify_id: `ytmusic_${t.videoId}_${t.title}`.slice(0, 60),
+                  track_name: t.title,
+                  artist_name: t.artist || artistName,
+                });
+              }
+              continue;
+            }
+          }
+          // Fallback: Last.fm top tracks
+          const lfmTracks = await lfmGetArtistTopTracks(artistName, 5);
+          for (const t of lfmTracks) {
+            artistTracks.push({
+              spotify_id: `lastfm_${t.name}_${artistName}`.slice(0, 60),
+              track_name: t.name,
+              artist_name: artistName,
+            });
+          }
+        } catch (err: any) {
+          console.warn(`[playlist] could not get tracks for ${artistName}:`, err.message);
+        }
+      }
+
+      if (artistTracks.length < 3) {
+        res.status(422).json({ error: "Nao foi possivel encontrar musicas suficientes dos artistas mencionados." });
+        return;
+      }
+
+      // Shuffle and limit
+      for (let i = artistTracks.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [artistTracks[i], artistTracks[j]] = [artistTracks[j], artistTracks[i]];
+      }
+      scored = artistTracks.slice(0, 20).map((t, i) => ({
+        track: t,
+        score: 1 - i * 0.02, // descending score for display
+      }));
+
+      console.log(`[playlist] collected ${artistTracks.length} tracks from ${artistDetection.artists.length} artists`);
+    } else {
+      // VIBE MODE: original flow — generate vibe profile and match from database
+      vibeProfile = await generateVibeProfile(description.trim());
+      playlistName = vibeProfile.playlist_name;
+      console.log(`[playlist] vibe profile: ${playlistName}`);
+
+      const { tracks: allTracks } = await getAllTrackFeatures(undefined, 1, 100000);
+      scored = matchTracks(vibeProfile, allTracks);
+
+      if (scored.length < 5) {
+        res.status(422).json({
+          error: "Poucas musicas no banco para essa vibe. Tente novamente quando mais musicas forem analisadas.",
+        });
+        return;
+      }
+
+      console.log(`[playlist] matched ${scored.length} tracks (best: ${scored[0].score.toFixed(2)})`);
     }
-
-    console.log(`[playlist] matched ${scored.length} tracks (best: ${scored[0].score.toFixed(2)})`);
 
     let playlistExternalId: string | null = null;
     let playlistUrl: string | null = null;
@@ -515,7 +594,7 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
       // 3a. Create YouTube Music playlist
       try {
         const ytToken = JSON.parse(Buffer.from(ytTokenB64, "base64").toString("utf-8"));
-        const ytPlaylistId = await createYTPlaylist(ytToken, vibeProfile.playlist_name, description);
+        const ytPlaylistId = await createYTPlaylist(ytToken, playlistName, description);
         playlistExternalId = ytPlaylistId;
         playlistUrl = `https://music.youtube.com/playlist?list=${ytPlaylistId}`;
 
@@ -552,7 +631,7 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
     } else if (platform === "spotify" && token) {
       // 3b. Create Spotify playlist
       try {
-        const playlist = await createPlaylist(token, userId, vibeProfile.playlist_name, description);
+        const playlist = await createPlaylist(token, userId, playlistName, description);
         playlistExternalId = playlist.id;
         playlistUrl = playlist.url;
 
@@ -586,13 +665,15 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
         track_name: s.track.track_name,
         artist_name: s.track.artist_name,
         score: s.score,
-      }))
+      })),
+      platform,
+      is_public
     );
 
     res.json({
       playlist: {
         id: saved.id,
-        name: vibeProfile.playlist_name,
+        name: playlistName,
         description,
         spotify_url: playlistUrl,
         platform,
@@ -642,6 +723,16 @@ app.post("/api/playlist/:id/rate", async (req, res) => {
   }
 });
 
+app.get("/api/playlist/public", apiLimiter, async (_req, res) => {
+  try {
+    const playlists = await getPublicPlaylists(50, 0);
+    res.json(playlists);
+  } catch (error: any) {
+    console.error("[playlist-public] ERROR:", error);
+    res.status(500).json({ error: "Falha ao buscar playlists publicas" });
+  }
+});
+
 app.get("/api/playlist/history", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
   const userIdHeader = req.headers["x-user-id"] as string | undefined;
@@ -652,14 +743,25 @@ app.get("/api/playlist/history", async (req, res) => {
   }
 
   try {
-    let userId: string;
+    // Collect all possible user IDs to search playlists for
+    const userIds: string[] = [];
     if (token) {
-      userId = await getSpotifyUserId(token);
-    } else {
-      userId = userIdHeader!;
+      try { userIds.push(await getSpotifyUserId(token)); } catch { /* no spotify */ }
     }
-    const playlists = await getPlaylistsByUser(userId);
-    res.json(playlists);
+    if (userIdHeader) {
+      userIds.push(userIdHeader);
+    }
+    if (userIds.length === 0) {
+      res.json([]);
+      return;
+    }
+
+    // Fetch playlists for all user IDs (covers Spotify + YouTube users)
+    const allPlaylists = await Promise.all(userIds.map((id) => getPlaylistsByUser(id)));
+    const merged = allPlaylists.flat().sort((a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    res.json(merged);
   } catch (error: any) {
     console.error("[playlist-history] ERROR:", error);
     res.status(500).json({ error: "Falha ao buscar historico" });
@@ -667,14 +769,6 @@ app.get("/api/playlist/history", async (req, res) => {
 });
 
 app.get("/api/playlist/:id", async (req, res) => {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  const userId = Number(req.headers["x-user-id"]) || undefined;
-
-  if (!token && !userId) {
-    res.status(401).json({ error: "Auth required" });
-    return;
-  }
-
   try {
     const result = await getPlaylistWithTracks(Number(req.params.id));
     if (!result) {
@@ -682,16 +776,31 @@ app.get("/api/playlist/:id", async (req, res) => {
       return;
     }
 
-    // Ownership check: verify caller owns this playlist
-    if (token) {
-      const spotifyId = await getSpotifyUserId(token);
-      if (result.playlist.user_spotify_id && result.playlist.user_spotify_id !== spotifyId) {
+    // Public playlists are accessible to anyone
+    const isPublic = (result.playlist as any).is_public;
+    if (!isPublic) {
+      // Private playlist — require ownership
+      const token = req.headers.authorization?.replace("Bearer ", "");
+      const userIdHeader = req.headers["x-user-id"] as string | undefined;
+
+      if (!token && !userIdHeader) {
+        res.status(401).json({ error: "Auth required" });
+        return;
+      }
+
+      const ownerIds: string[] = [];
+      if (token) {
+        try { ownerIds.push(await getSpotifyUserId(token)); } catch { /* no spotify */ }
+      }
+      if (userIdHeader) {
+        ownerIds.push(userIdHeader);
+      }
+
+      const storedOwner = result.playlist.user_spotify_id;
+      if (storedOwner && ownerIds.length > 0 && !ownerIds.includes(storedOwner)) {
         res.status(403).json({ error: "Acesso negado" });
         return;
       }
-    } else if (userId && result.playlist.user_id && result.playlist.user_id !== userId) {
-      res.status(403).json({ error: "Acesso negado" });
-      return;
     }
 
     res.json(result);
@@ -886,6 +995,68 @@ app.get("/api/artist-details", async (req, res) => {
   } catch (error: any) {
     console.error("[artist-details] ERROR:", error.message);
     res.status(error.response?.status || 500).json({ error: "Falha ao buscar artista" });
+  }
+});
+
+// Recommended/similar artists based on user's top artists
+app.get("/api/recommended-artists", apiLimiter, async (req, res) => {
+  const artistNames = (req.query.artists as string || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (artistNames.length === 0) {
+    res.status(400).json({ error: "Missing artists query param (comma-separated)" });
+    return;
+  }
+
+  try {
+    // Get similar artists from Last.fm for each input artist (top 5 per artist)
+    const allSimilar = new Map<string, { name: string; image: string; score: number; from: string[] }>();
+
+    await Promise.all(
+      artistNames.slice(0, 10).map(async (artistName) => {
+        try {
+          const similar = await lfmGetSimilarArtists(artistName, 10);
+          for (const s of similar) {
+            const key = s.name.toLowerCase();
+            // Skip if it's one of the user's own top artists
+            if (artistNames.some((a) => a.toLowerCase() === key)) continue;
+            const existing = allSimilar.get(key);
+            if (existing) {
+              existing.score += s.match;
+              existing.from.push(artistName);
+            } else {
+              allSimilar.set(key, { name: s.name, image: s.image, score: s.match, from: [artistName] });
+            }
+          }
+        } catch {
+          // Skip failed lookups
+        }
+      })
+    );
+
+    // Sort by aggregate score and resolve images
+    const ranked = [...allSimilar.values()]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 15);
+
+    // Resolve images in parallel — use resolveArtistImage which handles Last.fm placeholders + Deezer fallback
+    const results = await Promise.all(
+      ranked.map(async (r) => {
+        let image = "";
+        try {
+          image = await resolveArtistImage(r.name, r.image || "");
+        } catch { /* no image */ }
+        return {
+          name: r.name,
+          image,
+          score: Math.round(r.score * 100),
+          from: r.from,
+        };
+      })
+    );
+
+    res.json({ artists: results });
+  } catch (error: any) {
+    console.error("[recommended-artists] ERROR:", error.message);
+    res.status(500).json({ error: "Failed to get recommended artists" });
   }
 });
 

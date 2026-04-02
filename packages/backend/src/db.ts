@@ -50,6 +50,24 @@ export async function initDb(): Promise<void> {
     console.log("[db] migration 005 applied");
   }
 
+  const migration006Path = resolve(__dirname, "../../../db/migrate_006_playlist_platform.sql");
+  if (existsSync(migration006Path)) {
+    await pool.query(readFileSync(migration006Path, "utf-8"));
+    console.log("[db] migration 006 applied");
+  }
+
+  const migration007Path = resolve(__dirname, "../../../db/migrate_007_playlist_public.sql");
+  if (existsSync(migration007Path)) {
+    await pool.query(readFileSync(migration007Path, "utf-8"));
+    console.log("[db] migration 007 applied");
+  }
+
+  const migration008Path = resolve(__dirname, "../../../db/migrate_008_fix_platform.sql");
+  if (existsSync(migration008Path)) {
+    await pool.query(readFileSync(migration008Path, "utf-8"));
+    console.log("[db] migration 008 applied");
+  }
+
   console.log("[db] schema initialized");
 }
 
@@ -291,17 +309,19 @@ export async function savePlaylist(
   vibeProfile: any,
   spotifyPlaylistId: string | null,
   spotifyUrl: string | null,
-  tracks: { spotify_id: string; track_name: string; artist_name: string; score: number }[]
+  tracks: { spotify_id: string; track_name: string; artist_name: string; score: number }[],
+  platform: string = "spotify",
+  isPublic: boolean = true
 ): Promise<PlaylistRow> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
     const { rows } = await client.query(
-      `INSERT INTO playlists (user_spotify_id, description, vibe_profile, spotify_playlist_id, spotify_url, track_count)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO playlists (user_spotify_id, description, vibe_profile, spotify_playlist_id, spotify_url, track_count, platform, is_public)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [userSpotifyId, description, JSON.stringify(vibeProfile), spotifyPlaylistId, spotifyUrl, tracks.length]
+      [userSpotifyId, description, vibeProfile ? JSON.stringify(vibeProfile) : null, spotifyPlaylistId, spotifyUrl, tracks.length, platform, isPublic]
     );
     const playlist = rows[0] as PlaylistRow;
 
@@ -328,6 +348,14 @@ export async function getPlaylistsByUser(userSpotifyId: string): Promise<Playlis
   const { rows } = await pool.query(
     "SELECT * FROM playlists WHERE user_spotify_id = $1 ORDER BY created_at DESC",
     [userSpotifyId]
+  );
+  return rows;
+}
+
+export async function getPublicPlaylists(limit = 50, offset = 0): Promise<PlaylistRow[]> {
+  const { rows } = await pool.query(
+    "SELECT * FROM playlists WHERE is_public = true ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+    [limit, offset]
   );
   return rows;
 }
