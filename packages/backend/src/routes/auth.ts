@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { randomBytes } from "crypto";
 import { config } from "../config.js";
-import { getAuthUrl, exchangeCode, getTopArtists, getTopTracks } from "../spotify.js";
-import { addToQueue, getTrackFeatures } from "../db.js";
+import { getAuthUrl, exchangeCode, getTopArtists, getTopTracks, getSpotifyUserId } from "../spotify.js";
+import { addToQueue, getTrackFeatures, trackExistsByName, findOrCreateUser } from "../db.js";
 
 export const authRouter = Router();
 
@@ -40,6 +40,10 @@ authRouter.get("/callback", async (req, res) => {
   try {
     console.log("[callback] exchanging code...");
     const accessToken = await exchangeCode(code);
+
+    const spotifyUserId = await getSpotifyUserId(accessToken);
+    const user = await findOrCreateUser("spotify", spotifyUserId);
+
     console.log("[callback] got access token, fetching artists...");
     const artists = await getTopArtists(accessToken);
     console.log("[callback] got", artists.length, "artists, redirecting to hub");
@@ -52,33 +56,29 @@ authRouter.get("/callback", async (req, res) => {
 
     const artistsPayload = encodeURIComponent(JSON.stringify(topArtistsData));
 
-    // Enqueue top tracks for background analysis (fire-and-forget)
+    // Enqueue top 100 tracks for background analysis (fire-and-forget)
     (async () => {
       try {
-        const MAX_OFFSET = 80;
         let totalEnqueued = 0;
 
-        for (let offset = 0; offset <= MAX_OFFSET; offset += 20) {
+        for (let offset = 0; offset < 100; offset += 20) {
           const tracks = await getTopTracks(accessToken, { offset });
           if (tracks.length === 0) break;
 
-          let newTracks = 0;
           for (const track of tracks) {
             if (!track.id) continue;
-            const exists = await getTrackFeatures(track.id);
-            if (!exists) {
-              await addToQueue(track.id, track.name, track.artists[0]?.name || "Unknown");
-              newTracks++;
-            }
+            const artistName = track.artists[0]?.name || "Unknown";
+            // Dedup by spotify_id OR by name+artist (cross-platform)
+            const existsById = await getTrackFeatures(track.id);
+            if (existsById) continue;
+            const existsByName = await trackExistsByName(track.name, artistName);
+            if (existsByName) continue;
+            await addToQueue(track.id, track.name, artistName);
+            totalEnqueued++;
           }
-          totalEnqueued += newTracks;
-          console.log(`[callback] offset=${offset}: ${newTracks} new tracks enqueued (${tracks.length - newTracks} already in db)`);
-
-          if (newTracks > 0) break;
-          console.log(`[callback] all tracks at offset=${offset} already in db, fetching next page...`);
         }
 
-        console.log(`[callback] total enqueued: ${totalEnqueued}`);
+        console.log(`[callback] enqueued ${totalEnqueued} Spotify tracks for analysis`);
       } catch (err) {
         console.error("[callback] failed to enqueue tracks:", err);
       }
@@ -86,7 +86,7 @@ authRouter.get("/callback", async (req, res) => {
 
     // Redirect to frontend callback page that stores token in sessionStorage
     // Token is in a hash fragment (not query param) so it's not sent to servers or logged
-    res.redirect(`${config.frontendUrl}/#/auth-callback?artists=${artistsPayload}&t=${encodeURIComponent(accessToken)}`);
+    res.redirect(`${config.frontendUrl}/#/auth-callback?artists=${artistsPayload}&t=${encodeURIComponent(accessToken)}&userId=${user.id}`);
   } catch (error) {
     console.error("[callback] ERROR:", error);
     res.redirect(`${config.frontendUrl}/#/error?message=${encodeURIComponent("Something went wrong")}`);

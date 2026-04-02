@@ -5,6 +5,7 @@ import {
   updateQueueStatus,
   saveTrackFeatures,
   resetStuckProcessing,
+  cleanExpiredCache,
 } from "./db.js";
 import { analyzeWithEssentia } from "./essentia.js";
 
@@ -66,6 +67,12 @@ export async function startWorker(): Promise<void> {
   setInterval(async () => {
     try {
       await processQueue();
+
+      // Clean expired Last.fm cache entries
+      const cleaned = await cleanExpiredCache();
+      if (cleaned > 0) {
+        console.log(`[worker] cleaned ${cleaned} expired cache entries`);
+      }
     } catch (err) {
       console.error("[worker] unexpected error:", err);
     }

@@ -1,22 +1,26 @@
 # Spotaste
 
-App de analise de gosto musical que conecta com Spotify, usa IA (Claude) pra analisar seu perfil e analisa audio real das musicas com Essentia.
+App de analise de gosto musical que conecta com Spotify e/ou Last.fm, usa IA (Claude) pra analisar seu perfil e analisa audio real das musicas com Essentia.
+
+**Live em [spotaste.cc](https://spotaste.cc)**
 
 ## Features
 
-**Julgar Perfil** — IA faz um roast zoeiro do seu gosto musical baseado nos seus top artistas
+**Julgar Perfil** — IA faz um roast zoeiro gen-z do seu gosto musical, com expressoes faciais dinamicas por mensagem (chat-style). Usuarios Last.fm ganham roast enriquecido com play counts
 
 **Vibe Profile** — Analise detalhada das suas top 20 tracks com atributos inferidos pela IA + dados reais do audio (BPM, key, energy, moods)
 
-**Audio Analysis** — Busca musicas por nome/artista ou cola link do Spotify, enfileira pra analise em background. Mostra energy, danceability, moods (happy, sad, relaxed, party, etc.) extraidos do audio real
+**Audio Analysis** — Busca musicas por nome/artista ou cola link do Spotify, enfileira pra analise em background. Funciona sem login (busca via Last.fm com capas via Deezer). Mostra energy, danceability, moods (happy, sad, relaxed, party, etc.) extraidos do audio real
 
-**Text to Playlist** — Descreve uma vibe em texto livre (ex: "noite de chuva lendo um livro"), a IA gera um perfil sonoro, o algoritmo encontra as musicas que mais combinam no banco e cria uma playlist no Spotify automaticamente
+**Text to Playlist** — Descreve uma vibe em texto livre (ex: "noite de chuva lendo um livro"), a IA gera um perfil sonoro, o algoritmo encontra as musicas que mais combinam no banco e cria uma playlist no Spotify automaticamente (requer Spotify)
 
-**Banco de Musicas** — Explore todas as musicas ja analisadas com busca em tempo real e mood tags
+**Banco de Musicas** — Explore todas as musicas ja analisadas com busca em tempo real, mood tags e paginacao (20 por pagina)
 
-**Minhas Playlists** — Historico de playlists criadas com sistema de rating (6 opcoes) que calcula accuracy de vibe e de musica
+**Minhas Playlists** — Historico de playlists criadas com sistema de rating (6 opcoes) que calcula accuracy de vibe e de musica (requer Spotify)
 
 **Modal de Artista** — Clique em qualquer artista pra ver top 10 musicas, generos, popularidade e links pro Spotify
+
+**Configuracoes** — Conectar/desconectar Last.fm, gerenciar plataformas
 
 ## Tech Stack
 
@@ -27,20 +31,23 @@ App de analise de gosto musical que conecta com Spotify, usa IA (Claude) pra ana
 | IA | Claude Haiku 4.5 (Anthropic) |
 | Audio | Essentia + TensorFlow (8 modelos MusiCNN), yt-dlp, Flask |
 | Banco | PostgreSQL 16, SQLite (sql.js) |
-| Infra | Docker Compose, pnpm workspaces |
+| APIs | Spotify Web API, Last.fm API, Deezer API (imagens) |
+| Infra | Docker Compose, pnpm workspaces, Cloudflare Tunnel |
 
 ## Arquitetura
 
 ```
 Browser (React SPA)
     |
-    | Vite proxy /api /auth
+    | Vite proxy /api /auth (dev) | static files (prod)
     v
 Express Backend (:3000)
     |
     |--- Spotify Web API (OAuth, tracks, artists, playlists)
+    |--- Last.fm API (top artists/tracks, scrobbles, search)
+    |--- Deezer API (album covers, artist images - fallback)
     |--- Claude Haiku API (roast, taste analysis, vibe profile)
-    |--- PostgreSQL (:5432) (track features, playlists, ratings, cache)
+    |--- PostgreSQL (:5432) (track features, playlists, ratings, cache, users)
     |--- SQLite (taste analysis cache per user)
     |--- Audio Service (:5001)
               |
@@ -55,6 +62,7 @@ Express Backend (:3000)
 - [Docker](https://www.docker.com/) e Docker Compose (ou [Rancher Desktop](https://rancherdesktop.io/))
 - Conta de desenvolvedor no [Spotify](https://developer.spotify.com/dashboard)
 - API key da [Anthropic](https://console.anthropic.com/)
+- API key do [Last.fm](https://www.last.fm/api/account/create) (opcional, pra funcionalidades sem Spotify)
 
 ## Setup
 
@@ -89,6 +97,7 @@ PORT=3000
 ANTHROPIC_API_KEY=sua_api_key
 AUDIO_SERVICE_URL=http://127.0.0.1:5001
 DATABASE_URL=postgresql://spotaste:spotaste@localhost:5432/spotaste
+LASTFM_API_KEY=sua_lastfm_api_key
 ```
 
 > **Importante:** Use sempre `127.0.0.1` e nunca `localhost`. O Spotify bloqueia `localhost` como redirect URI.
@@ -111,7 +120,17 @@ Isso sobe:
 
 O primeiro build do audio-service baixa ~300MB de modelos de ML. Builds subsequentes usam cache.
 
-### 6. Rodar o app
+### 6. Rodar as migrations
+
+```bash
+docker compose exec postgres psql -U spotaste -d spotaste -f /dev/stdin < db/schema.sql
+docker compose exec postgres psql -U spotaste -d spotaste -f /dev/stdin < db/migrate_001_add_moods.sql
+docker compose exec postgres psql -U spotaste -d spotaste -f /dev/stdin < db/migrate_002_playlists.sql
+docker compose exec postgres psql -U spotaste -d spotaste -f /dev/stdin < db/migrate_003_judge_cache.sql
+docker compose exec postgres psql -U spotaste -d spotaste -f /dev/stdin < db/migrate_004_lastfm.sql
+```
+
+### 7. Rodar o app
 
 Em dois terminais separados:
 
@@ -123,28 +142,42 @@ pnpm dev:backend
 pnpm dev:frontend
 ```
 
-Ou num so terminal:
+### 8. Acessar
+
+Abra **http://127.0.0.1:5173** no navegador e faca login com Spotify ou entre com seu username do Last.fm.
+
+### Producao
+
+Para rodar em producao com Cloudflare Tunnel:
 
 ```bash
-pnpm dev:backend & pnpm dev:frontend
+# Build do frontend
+pnpm --filter @spotaste/frontend build
+
+# Backend servindo static files
+NODE_ENV=production FRONTEND_URL=https://spotaste.cc REDIRECT_URI=https://spotaste.cc/auth/callback pnpm --filter @spotaste/backend dev
+
+# Tunnel (em outro terminal)
+cloudflared tunnel run spotaste
 ```
-
-### 7. Acessar
-
-Abra **http://127.0.0.1:5173** no navegador e faca login com sua conta Spotify.
 
 ## Como funciona
 
+### Plataformas
+
+O Spotaste suporta duas plataformas de entrada:
+
+- **Spotify** — Login via OAuth, acesso completo a todas as features incluindo criacao de playlists
+- **Last.fm** — Entrada por username, acesso a analise de perfil, audio analysis e banco de musicas. Nao cria playlists (Last.fm nao tem essa API)
+
 ### Analise de audio
 
-Quando voce loga, suas top 20 musicas sao enfileiradas automaticamente pra analise. Um worker background processa 5 musicas por ciclo (a cada 30s):
+Quando voce loga, suas top tracks sao enfileiradas automaticamente pra analise (ate 100 tracks, com dedup cross-platform). Um worker background processa 5 musicas por ciclo (a cada 30s):
 
 1. Busca o audio no YouTube via yt-dlp
 2. Extrai features basicas com Essentia (BPM, key, energy, danceability, loudness)
 3. Classifica moods com 8 modelos TensorFlow MusiCNN (happy, sad, aggressive, relaxed, party, instrumental, acoustic, danceability)
 4. Salva no PostgreSQL — cache global compartilhado entre usuarios
-
-Se todas as suas top 20 ja foram analisadas, o sistema busca as proximas 20 mais ouvidas automaticamente.
 
 ### Text to Playlist
 
@@ -188,21 +221,27 @@ spotaste/
 │   │   ├── index.ts                # Express app + endpoints
 │   │   ├── config.ts               # Variaveis de ambiente
 │   │   ├── spotify.ts              # Spotify Web API client
+│   │   ├── lastfm.ts               # Last.fm API client + Deezer fallback
 │   │   ├── claude.ts               # Claude taste analysis + vibe profile
-│   │   ├── judge.ts                # Claude roast prompt
+│   │   ├── judge.ts                # Claude roast prompt (com moods)
 │   │   ├── essentia.ts             # Audio service HTTP client
 │   │   ├── db.ts                   # PostgreSQL queries + migrations
 │   │   ├── cache.ts                # SQLite cache (taste analysis)
 │   │   ├── matcher.ts              # Algoritmo de matching weighted distance
 │   │   ├── worker.ts               # Background queue processor
-│   │   └── routes/auth.ts          # OAuth flow
+│   │   └── routes/
+│   │       ├── auth.ts             # Spotify OAuth flow
+│   │       ├── auth-lastfm.ts      # Last.fm auth flow
+│   │       └── settings.ts         # User settings endpoints
 │   └── frontend/src/
 │       ├── pages/                  # Login, Hub, Judge, TasteAnalysis,
 │       │                           # AudioFeatures, Library, TextToPlaylist,
-│       │                           # PlaylistHistory, AuthCallback
+│       │                           # PlaylistHistory, Settings, AuthCallback
 │       ├── components/             # Sidebar, ArtistCard, ArtistModal,
-│       │                           # SpotifyButton, TrackRating
-│       └── hooks/useAuth.ts        # Token management (sessionStorage)
+│       │                           # LastfmInput, SpotifyButton, TrackRating
+│       ├── context/                # PlatformContext (Spotify/Last.fm)
+│       ├── hooks/useAuth.ts        # Token management (sessionStorage)
+│       └── images/                 # Reaction faces (judge moods)
 └── .env.example
 ```
 
@@ -214,6 +253,7 @@ spotaste/
 - PostgreSQL acessivel apenas em localhost
 - Input validation com limites de tamanho
 - Endpoints autenticados exigem Bearer token
+- Graceful shutdown no backend (libera porta no Ctrl+C)
 
 ## Licenca
 
