@@ -1,11 +1,15 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { getAuthSetup, pollAuthToken, getYTUserInfo } from "../ytmusic.js";
 import { findOrCreateUser } from "../db.js";
 
 const router = Router();
 
+const authLimiter = rateLimit({ windowMs: 60_000, max: 5, message: { error: "Too many requests. Try again in 1 minute." } });
+const pollLimiter = rateLimit({ windowMs: 60_000, max: 30, message: { error: "Too many requests." } });
+
 // Step 1: Get device code + verification URL
-router.get("/auth/ytmusic/setup", async (_req, res) => {
+router.get("/auth/ytmusic/setup", authLimiter, async (_req, res) => {
   try {
     const setup = await getAuthSetup();
     res.json(setup);
@@ -16,7 +20,7 @@ router.get("/auth/ytmusic/setup", async (_req, res) => {
 });
 
 // Step 2: Poll for token (frontend calls this repeatedly)
-router.post("/auth/ytmusic/token", async (req, res) => {
+router.post("/auth/ytmusic/token", pollLimiter, async (req, res) => {
   const { device_code } = req.body;
   if (!device_code) {
     res.status(400).json({ error: "Missing device_code" });

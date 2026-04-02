@@ -38,16 +38,14 @@ def get_access_token(req):
 
 
 def refresh_token_if_needed(token_data):
-    """Refresh the access token using the refresh token."""
+    """Refresh the access token using server-side credentials only."""
     refresh_tok = token_data.get("refresh_token")
-    client_id = token_data.get("client_id", GOOGLE_CLIENT_ID)
-    client_secret = token_data.get("client_secret", GOOGLE_CLIENT_SECRET)
-    if not refresh_tok or not client_id or not client_secret:
+    if not refresh_tok or not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         return token_data
     try:
         resp = http_requests.post(TOKEN_URL, data={
-            "client_id": client_id,
-            "client_secret": client_secret,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
             "refresh_token": refresh_tok,
             "grant_type": "refresh_token",
         }, timeout=15)
@@ -202,8 +200,6 @@ def auth_token():
                 "token_type": data.get("token_type", "Bearer"),
                 "expires_in": data.get("expires_in", 3600),
                 "scope": data.get("scope", YOUTUBE_MUSIC_SCOPE),
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
             }
 
             # Get channel ID via YouTube Data API v3
@@ -255,10 +251,11 @@ def auth_refresh():
             return jsonify({"error": f"Token refresh failed: {resp.text}"}), 502
         data = resp.json()
         updated_token = {
-            **token,
             "access_token": data.get("access_token", token.get("access_token")),
+            "refresh_token": token.get("refresh_token", ""),
             "expires_in": data.get("expires_in", 3600),
             "token_type": data.get("token_type", "Bearer"),
+            "scope": token.get("scope", YOUTUBE_MUSIC_SCOPE),
         }
         return jsonify({"token": updated_token})
     except Exception as e:
@@ -471,7 +468,7 @@ def playlist_add(playlist_id):
 
 @app.after_request
 def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Origin"] = "http://127.0.0.1:3000"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Token"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
