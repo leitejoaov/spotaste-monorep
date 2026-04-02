@@ -9,6 +9,7 @@ import TextToPlaylist from "./pages/TextToPlaylist";
 import PlaylistHistory from "./pages/PlaylistHistory";
 import AuthCallback from "./pages/AuthCallback";
 import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
 import Settings from "./pages/Settings";
 import Sidebar from "./components/Sidebar";
 import { PlatformProvider, usePlatform } from "./context/PlatformContext";
@@ -35,6 +36,7 @@ function AppContent() {
         <Route path="/text-to-playlist" element={<TextToPlaylist />} />
         <Route path="/playlist-history" element={<PlaylistHistory />} />
       <Route path="/privacy" element={<Privacy />} />
+        <Route path="/terms" element={<Terms />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>
     </>

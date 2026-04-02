@@ -202,7 +202,14 @@ export default function Login() {
             onClick={() => navigate("/privacy")}
             className="text-spotify-green/50 hover:text-spotify-green underline transition-colors"
           >
-            Politica de Privacidade
+            Privacidade
+          </button>
+          {" · "}
+          <button
+            onClick={() => navigate("/terms")}
+            className="text-spotify-green/50 hover:text-spotify-green underline transition-colors"
+          >
+            Termos de Uso
           </button>
         </p>
       </motion.div>
