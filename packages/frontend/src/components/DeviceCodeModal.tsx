@@ -13,25 +13,30 @@ interface Props {
 export default function DeviceCodeModal({ url, code, deviceCode, onSuccess, onCancel }: Props) {
   const [copied, setCopied] = useState(false);
   const [opened, setOpened] = useState(false);
+  const [countdown, setCountdown] = useState(3);
   const hasAutoOpened = useRef(false);
 
-  // Auto-copy code and open URL on mount
+  // Auto-copy code on mount, countdown then open URL
   useEffect(() => {
     if (hasAutoOpened.current) return;
     hasAutoOpened.current = true;
 
     navigator.clipboard.writeText(code).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 3000);
+      setTimeout(() => setCopied(false), 4000);
     }).catch(() => {});
+  }, [code]);
 
-    const timer = setTimeout(() => {
+  useEffect(() => {
+    if (opened) return;
+    if (countdown <= 0) {
       window.open(url, "_blank", "noopener,noreferrer");
       setOpened(true);
-    }, 500);
-
+      return;
+    }
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
-  }, [url, code]);
+  }, [countdown, opened, url]);
 
   const handleCopy = async () => {
     try {
@@ -113,7 +118,7 @@ export default function DeviceCodeModal({ url, code, deviceCode, onSuccess, onCa
             <p className="text-sm text-spotify-text text-center">
               {opened
                 ? "Cole o codigo na aba que abriu e autorize"
-                : "Vamos abrir o Google pra voce autorizar"}
+                : `Copie o codigo abaixo — abrindo o Google em ${countdown}s...`}
             </p>
           </div>
 
@@ -140,14 +145,14 @@ export default function DeviceCodeModal({ url, code, deviceCode, onSuccess, onCa
             )}
           </div>
 
-          {/* Open URL button (if popup was blocked) */}
+          {/* Open URL button */}
           {!opened && (
             <button
-              onClick={handleOpenUrl}
+              onClick={() => { setCountdown(0); }}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors mb-6"
             >
               <ExternalLink size={16} />
-              Abrir pagina de autorizacao
+              Abrir agora ({countdown}s)
             </button>
           )}
 
