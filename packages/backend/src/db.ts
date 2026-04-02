@@ -224,21 +224,31 @@ export async function getTracksWithoutMoods(): Promise<TrackFeatures[]> {
 }
 
 export async function getAllTrackFeatures(
-  search?: string
-): Promise<TrackFeatures[]> {
+  search?: string,
+  page = 1,
+  limit = 20
+): Promise<{ tracks: TrackFeatures[]; total: number }> {
+  const offset = (page - 1) * limit;
   if (search) {
+    const pattern = `%${search.toLowerCase()}%`;
+    const countRes = await pool.query(
+      `SELECT COUNT(*) FROM track_features WHERE LOWER(track_name) LIKE $1 OR LOWER(artist_name) LIKE $1`,
+      [pattern]
+    );
     const { rows } = await pool.query(
       `SELECT * FROM track_features
        WHERE LOWER(track_name) LIKE $1 OR LOWER(artist_name) LIKE $1
-       ORDER BY analyzed_at DESC`,
-      [`%${search.toLowerCase()}%`]
+       ORDER BY analyzed_at DESC LIMIT $2 OFFSET $3`,
+      [pattern, limit, offset]
     );
-    return rows;
+    return { tracks: rows, total: Number(countRes.rows[0].count) };
   }
+  const countRes = await pool.query("SELECT COUNT(*) FROM track_features");
   const { rows } = await pool.query(
-    "SELECT * FROM track_features ORDER BY analyzed_at DESC"
+    "SELECT * FROM track_features ORDER BY analyzed_at DESC LIMIT $1 OFFSET $2",
+    [limit, offset]
   );
-  return rows;
+  return { tracks: rows, total: Number(countRes.rows[0].count) };
 }
 
 // --- Playlist functions ---

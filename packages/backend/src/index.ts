@@ -58,13 +58,17 @@ app.post("/api/judge", claudeLimiter, async (req, res) => {
       const cached = await getCachedJudge(cacheUserId, artHash);
       if (cached) {
         console.log("[judge] cache hit for", cacheUserId);
-        res.json({ analysis: cached });
+        try {
+          res.json({ analysis: JSON.parse(cached) });
+        } catch {
+          res.json({ analysis: cached });
+        }
         return;
       }
 
       console.log("[judge] cache miss for", cacheUserId);
 
-      let analysis: string;
+      let analysis;
       if (lastfmUser) {
         // Enriched roast with Last.fm play counts
         const userInfo = await lfmValidateUser(lastfmUser);
@@ -89,7 +93,7 @@ app.post("/api/judge", claudeLimiter, async (req, res) => {
         analysis = await getMusicTasteAnalysis(artists);
       }
 
-      await setCachedJudge(cacheUserId, artHash, analysis);
+      await setCachedJudge(cacheUserId, artHash, JSON.stringify(analysis));
       res.json({ analysis });
       return;
     }
@@ -247,16 +251,22 @@ app.get("/api/search-tracks", async (req, res) => {
         source: "spotify" as const,
       })));
     } else {
-      // Last.fm fallback search
+      // Last.fm fallback search with Deezer images
       const results = await lfmSearchTrack(q);
-      res.json(results.map((t) => ({
-        id: `lastfm_${t.name}_${t.artist}`.slice(0, 60),
-        name: t.name,
-        artist: t.artist,
-        album: "",
-        image: t.image || null,
-        source: "lastfm" as const,
-      })));
+      const enriched = await Promise.all(
+        results.map(async (t) => {
+          const image = await resolveTrackImage(t.name, t.artist, t.image);
+          return {
+            id: `lastfm_${t.name}_${t.artist}`.slice(0, 60),
+            name: t.name,
+            artist: t.artist,
+            album: "",
+            image: image || null,
+            source: "lastfm" as const,
+          };
+        })
+      );
+      res.json(enriched);
     }
   } catch (error: any) {
     console.error("[search] ERROR:", error.message);
@@ -313,10 +323,6 @@ app.get("/api/audio-features-essentia/:trackId", async (req, res) => {
 // Enqueue a track for background analysis — returns immediately
 app.post("/api/enqueue-track/:trackId", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token) {
-    res.status(401).json({ error: "Missing access token" });
-    return;
-  }
 
   try {
     const { trackId } = req.params;
@@ -325,6 +331,26 @@ app.post("/api/enqueue-track/:trackId", async (req, res) => {
     const cached = await getTrackFeatures(trackId);
     if (cached) {
       res.json({ spotify_id: trackId, track_name: cached.track_name, artist_name: cached.artist_name, status: "done", features: cached });
+      return;
+    }
+
+    if (trackId.startsWith("lastfm_")) {
+      // Last.fm track — extract name and artist from the ID
+      const parts = trackId.replace("lastfm_", "").split("_");
+      const trackName = req.body.track_name || parts[0] || "Unknown";
+      const artistName = req.body.artist_name || parts[1] || "Unknown";
+      const albumImage = req.body.album_image || await resolveTrackImage(trackName, artistName, "");
+
+      await addToQueue(trackId, trackName, artistName);
+      console.log(`[enqueue] queued (lastfm): ${trackName} - ${artistName}`);
+
+      res.json({ spotify_id: trackId, track_name: trackName, artist_name: artistName, album_image: albumImage, status: "pending" });
+      return;
+    }
+
+    // Spotify track — needs token
+    if (!token) {
+      res.status(401).json({ error: "Missing access token" });
       return;
     }
 
@@ -377,8 +403,10 @@ app.get("/api/queue-status", async (_req, res) => {
 app.get("/api/tracks", async (req, res) => {
   try {
     const search = req.query.search as string | undefined;
-    const tracks = await getAllTrackFeatures(search);
-    res.json(tracks);
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+    const result = await getAllTrackFeatures(search, page, limit);
+    res.json(result);
   } catch (error: any) {
     console.error("[tracks] ERROR:", error);
     res.status(500).json({ error: "Failed to fetch tracks" });
@@ -409,7 +437,7 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
     console.log(`[playlist] vibe profile: ${vibeProfile.playlist_name}`);
 
     // 2. Match tracks from database
-    const allTracks = await getAllTrackFeatures();
+    const { tracks: allTracks } = await getAllTrackFeatures(undefined, 1, 100000);
     const scored = matchTracks(vibeProfile, allTracks);
 
     if (scored.length < 5) {
