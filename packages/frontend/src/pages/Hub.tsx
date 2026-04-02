@@ -23,7 +23,8 @@ export default function Hub() {
   const accessToken = getAccessToken();
   const [lastfmArtists, setLastfmArtists] = useState<ArtistData[]>([]);
   const [ytmusicArtists, setYtmusicArtists] = useState<ArtistData[]>([]);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [recommendedArtists, setRecommendedArtists] = useState<(ArtistData & { from?: string[] })[]>([]);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ recommended: false });
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -81,6 +82,43 @@ export default function Hub() {
       })
       .catch(() => {});
   }, [hasYTMusic, searchParams, getHeaders, lastfmUser]);
+
+  // Fetch recommended artists based on all known artists
+  useEffect(() => {
+    if (artists.length === 0 && lastfmArtists.length === 0 && ytmusicArtists.length === 0) return;
+
+    const allNames = [
+      ...artists.slice(0, 5),
+      ...lastfmArtists.slice(0, 3),
+      ...ytmusicArtists.slice(0, 3),
+    ].map((a) => a.name);
+
+    // Dedup
+    const unique = [...new Set(allNames.map((n) => n.toLowerCase()))].map(
+      (lower) => allNames.find((n) => n.toLowerCase() === lower)!
+    ).slice(0, 8);
+
+    if (unique.length === 0) return;
+
+    const API_URL = import.meta.env.VITE_API_URL || "";
+    fetch(`${API_URL}/api/recommended-artists?artists=${encodeURIComponent(unique.join(","))}`, {
+      headers: { ...getHeaders() },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.artists && Array.isArray(data.artists)) {
+          setRecommendedArtists(
+            data.artists.map((a: any) => ({
+              name: a.name,
+              image: a.image || "",
+              genres: [],
+              from: a.from,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  }, [artists, lastfmArtists, ytmusicArtists, getHeaders]);
 
   if (!isLoggedIn) return null;
 
@@ -140,8 +178,8 @@ export default function Hub() {
       onClick: () => navigate(`/text-to-playlist?hubData=${encodeURIComponent(artistsParam)}`),
     },
     {
-      title: "Minhas Playlists",
-      description: "Veja e avalie as playlists criadas pela IA",
+      title: "Playlists",
+      description: "Explore playlists criadas pela comunidade e as suas",
       icon: ListMusic,
       color: "from-rose-500 to-pink-400",
       shadow: "shadow-rose-500/20",
@@ -159,7 +197,7 @@ export default function Hub() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-spotify-dark via-[#0d1117] to-spotify-dark text-white">
       <header className="bg-spotify-dark/80 backdrop-blur-lg border-b border-white/5">
-        <div className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 py-6 flex items-center justify-between">
           <div className="w-20" />
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-spotify-green/20 flex items-center justify-center">
@@ -179,7 +217,8 @@ export default function Hub() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-8 space-y-10">
+      <main className="max-w-7xl mx-auto px-4 py-8 flex gap-8">
+        <div className="flex-1 min-w-0 space-y-10">
         {/* Connection cards for missing platforms */}
         {missingPlatforms && (
           <motion.div
@@ -259,38 +298,6 @@ export default function Hub() {
           </motion.section>
         )}
 
-        {/* Show Last.fm artists separately when we also have Spotify artists */}
-        {hasSpotify && lastfmArtists.length > 0 && artists.length > 0 && (
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15, duration: 0.6 }}
-          >
-            <button
-              onClick={() => setCollapsed((c) => ({ ...c, lastfm: !c.lastfm }))}
-              className="flex items-center gap-2 mb-6 group"
-            >
-              {collapsed.lastfm ? <ChevronRight size={16} className="text-[#d51007]" /> : <ChevronDown size={16} className="text-[#d51007]" />}
-              <h2 className="text-sm font-semibold uppercase tracking-widest text-[#d51007] group-hover:text-[#d51007]/80 transition-colors">
-                Top Artistas (Last.fm)
-              </h2>
-              <span className="text-xs text-white/30">{lastfmArtists.length}</span>
-            </button>
-            {!collapsed.lastfm && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                {lastfmArtists.map((artist, i) => (
-                  <ArtistCard
-                    key={`lfm-${artist.name}`}
-                    artist={artist}
-                    index={i}
-                    onClick={() => setSelectedArtist(artist.name)}
-                  />
-                ))}
-              </div>
-            )}
-          </motion.section>
-        )}
-
         {/* Show YouTube Music artists separately when we also have other platform artists */}
         {(hasSpotify || hasLastfm) && ytmusicArtists.length > 0 && artists.length > 0 && (
           <motion.section
@@ -353,6 +360,53 @@ export default function Hub() {
             ))}
           </div>
         </motion.section>
+        </div>
+
+        {/* Recommended artists — compact sidebar */}
+        {recommendedArtists.length > 0 && (
+          <motion.aside
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3, duration: 0.6 }}
+            className="hidden lg:block w-72 shrink-0"
+          >
+            <div className="sticky top-8">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-purple-400 mb-4">
+                Recomendados pra voce
+              </h2>
+              <div className="grid grid-cols-3 gap-2">
+                {recommendedArtists.map((artist, i) => (
+                  <motion.button
+                    key={`rec-${artist.name}`}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.35 + i * 0.04, duration: 0.3 }}
+                    onClick={() => setSelectedArtist(artist.name)}
+                    className="group flex flex-col items-center gap-1.5 p-1.5 rounded-xl hover:bg-white/5 transition-colors"
+                    title={artist.from ? `Similar a ${artist.from.join(", ")}` : artist.name}
+                  >
+                    <div className="w-full aspect-square rounded-lg overflow-hidden bg-white/5">
+                      {artist.image ? (
+                        <img
+                          src={artist.image}
+                          alt={artist.name}
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-white/20 text-lg">
+                          <Music size={16} />
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-white/60 group-hover:text-white/90 transition-colors truncate w-full text-center leading-tight">
+                      {artist.name}
+                    </span>
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+          </motion.aside>
+        )}
       </main>
 
       {selectedArtist && (

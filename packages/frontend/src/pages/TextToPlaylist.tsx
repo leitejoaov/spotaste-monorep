@@ -35,7 +35,7 @@ interface GeneratedPlaylist {
   description: string;
   spotify_url: string | null;
   platform?: "spotify" | "ytmusic";
-  vibe_profile: VibeProfile;
+  vibe_profile: VibeProfile | null;
   tracks: PlaylistTrack[];
 }
 
@@ -88,6 +88,7 @@ export default function TextToPlaylist() {
   const [vibeAccuracy, setVibeAccuracy] = useState<number | null>(null);
   const [musicAccuracy, setMusicAccuracy] = useState<number | null>(null);
   const [expandedTrack, setExpandedTrack] = useState<string | null>(null);
+  const [isPublic, setIsPublic] = useState(true);
 
   const handleGenerate = async () => {
     if (!description.trim() || loading) return;
@@ -109,7 +110,7 @@ export default function TextToPlaylist() {
           "Content-Type": "application/json",
           ...getHeaders(),
         },
-        body: JSON.stringify({ description: description.trim(), platform: selectedPlatform }),
+        body: JSON.stringify({ description: description.trim(), platform: selectedPlatform, is_public: isPublic }),
       });
 
       if (!res.ok) {
@@ -229,10 +230,22 @@ export default function TextToPlaylist() {
             </div>
           )}
 
+          {/* Public toggle */}
+          <button
+            onClick={() => setIsPublic((v) => !v)}
+            className="mt-4 flex items-center gap-3 w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/[0.08] transition-colors"
+          >
+            <div className={`w-9 h-5 rounded-full transition-colors relative ${isPublic ? "bg-amber-500" : "bg-white/20"}`}>
+              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${isPublic ? "left-[18px]" : "left-0.5"}`} />
+            </div>
+            <span className="text-sm text-white/70">Playlist publica</span>
+            <span className="text-[10px] text-white/30 ml-auto">{isPublic ? "Visivel pra todos" : "So voce ve"}</span>
+          </button>
+
           <button
             onClick={handleGenerate}
             disabled={loading || description.trim().length < 3 || !canCreatePlaylist}
-            className="mt-4 w-full px-5 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-black font-bold text-sm flex items-center justify-center gap-2"
+            className="mt-3 w-full px-5 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-black font-bold text-sm flex items-center justify-center gap-2"
           >
             {loading ? (
               <>
@@ -301,40 +314,42 @@ export default function TextToPlaylist() {
               ) : null}
             </motion.div>
 
-            {/* Vibe profile */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6"
-            >
-              <div className="flex items-center gap-2 mb-4">
-                <BarChart3 size={16} className="text-amber-400" />
-                <h3 className="text-sm font-semibold uppercase tracking-widest text-amber-400">
-                  Perfil da Vibe
-                </h3>
-              </div>
-              <div className="space-y-2.5">
-                {VIBE_BARS.filter(({ key }) => (playlist.vibe_profile.feature_weights[key] ?? 0) > 0.3).map(({ key, label, color }) => (
-                  <div key={key} className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase tracking-wider text-white/40 w-28">{label}</span>
-                    <div className="flex-1">
-                      <MiniBar
-                        value={(playlist.vibe_profile as any)[key] ?? 0}
-                        color={color}
-                      />
-                    </div>
-                    <span className="text-xs text-white/60 w-10 text-right">
-                      {(((playlist.vibe_profile as any)[key] ?? 0) * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                ))}
-                <div className="flex items-center gap-2 pt-1">
-                  <span className="text-[10px] uppercase tracking-wider text-white/40 w-28">BPM alvo</span>
-                  <span className="text-sm font-bold text-white">{playlist.vibe_profile.bpm_target}</span>
+            {/* Vibe profile (only for vibe mode, not artist mode) */}
+            {playlist.vibe_profile && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6"
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <BarChart3 size={16} className="text-amber-400" />
+                  <h3 className="text-sm font-semibold uppercase tracking-widest text-amber-400">
+                    Perfil da Vibe
+                  </h3>
                 </div>
-              </div>
-            </motion.div>
+                <div className="space-y-2.5">
+                  {VIBE_BARS.filter(({ key }) => (playlist.vibe_profile!.feature_weights[key] ?? 0) > 0.3).map(({ key, label, color }) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase tracking-wider text-white/40 w-28">{label}</span>
+                      <div className="flex-1">
+                        <MiniBar
+                          value={(playlist.vibe_profile as any)[key] ?? 0}
+                          color={color}
+                        />
+                      </div>
+                      <span className="text-xs text-white/60 w-10 text-right">
+                        {(((playlist.vibe_profile as any)[key] ?? 0) * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[10px] uppercase tracking-wider text-white/40 w-28">BPM alvo</span>
+                    <span className="text-sm font-bold text-white">{playlist.vibe_profile!.bpm_target}</span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
 
             {/* Accuracy meters */}
             {ratedCount > 0 && (
