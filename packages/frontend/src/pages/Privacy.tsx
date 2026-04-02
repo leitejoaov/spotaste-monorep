@@ -35,14 +35,16 @@ export default function Privacy() {
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-white">1. O que e o Spotaste</h2>
             <p>
-              Spotaste e um projeto open-source que analisa seu gosto musical usando dados da sua conta Spotify,
-              inteligencia artificial (Claude, da Anthropic) e analise real de audio (Essentia).
-              O app nao tem fins comerciais e nao vende dados de ninguem.
+              Spotaste e um projeto open-source que analisa seu gosto musical usando dados das suas contas
+              de musica (Spotify, Last.fm e YouTube Music), inteligencia artificial (Claude, da Anthropic)
+              e analise real de audio (Essentia). O app nao tem fins comerciais e nao vende dados de ninguem.
             </p>
           </section>
 
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-white">2. Quais dados acessamos</h2>
+
+            <h3 className="text-base font-semibold text-white/90">Spotify</h3>
             <p>Quando voce faz login com Spotify, pedimos acesso a:</p>
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li><strong>Top artistas e musicas</strong> — pra analisar seu gosto musical</li>
@@ -50,9 +52,29 @@ export default function Privacy() {
               <li><strong>Musicas ouvidas recentemente</strong> — pra contexto (nao armazenamos)</li>
               <li><strong>Criar playlists</strong> — quando voce usa o Text to Playlist</li>
             </ul>
+
+            <h3 className="text-base font-semibold text-white/90">YouTube Music</h3>
+            <p>Quando voce faz login com YouTube Music, pedimos acesso a:</p>
+            <ul className="list-disc list-inside space-y-1 pl-2">
+              <li><strong>Liked songs</strong> — pra analisar seu gosto musical</li>
+              <li><strong>Informacoes do canal</strong> — pra identificar sua conta</li>
+              <li><strong>Criar e editar playlists</strong> — quando voce usa o Text to Playlist</li>
+            </ul>
             <p>
+              Usamos o scope <code className="text-xs bg-white/10 px-1 py-0.5 rounded">youtube</code> do
+              Google OAuth, que permite acesso de leitura e escrita a dados do YouTube. Usamos apenas
+              para as funcionalidades descritas acima.
+            </p>
+
+            <h3 className="text-base font-semibold text-white/90">Last.fm</h3>
+            <p>
+              Quando voce conecta o Last.fm, acessamos apenas dados publicos da API do Last.fm usando seu
+              username. Nao pedimos senha nem autorizacao OAuth do Last.fm.
+            </p>
+
+            <p className="mt-3">
               Nao acessamos seu email, nome completo, dados de pagamento, ou qualquer informacao pessoal
-              alem do seu ID de usuario do Spotify.
+              alem do necessario para o funcionamento do app.
             </p>
           </section>
 
@@ -62,11 +84,11 @@ export default function Privacy() {
               <li><strong>Analise de audio das musicas</strong> — dados tecnicos como BPM, key, energy, moods (global, compartilhado entre usuarios)</li>
               <li><strong>Cache de analises da IA</strong> — pra nao repetir chamadas caras a API</li>
               <li><strong>Playlists geradas</strong> — com seus ratings pra medir accuracy</li>
-              <li><strong>Roast do perfil</strong> — cache por 30 dias vinculado ao seu Spotify ID</li>
+              <li><strong>Roast do perfil</strong> — cache por 30 dias vinculado ao seu ID de usuario</li>
             </ul>
             <p>
-              Nao armazenamos seu token de acesso do Spotify no servidor. O token fica apenas no seu navegador
-              (sessionStorage) e e descartado quando voce fecha a aba.
+              Nao armazenamos tokens de acesso no servidor. Os tokens ficam apenas no seu navegador
+              (sessionStorage) e sao descartados quando voce fecha a aba.
             </p>
           </section>
 
@@ -75,24 +97,30 @@ export default function Privacy() {
             <p>Seus dados nao sao compartilhados com terceiros. As unicas APIs externas que usamos:</p>
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li><strong>Spotify Web API</strong> — pra acessar seus dados musicais (com sua autorizacao)</li>
+              <li><strong>YouTube Data API v3</strong> — pra acessar liked songs e criar playlists (com sua autorizacao)</li>
+              <li><strong>Last.fm API</strong> — pra acessar dados publicos do seu perfil</li>
               <li><strong>Anthropic Claude API</strong> — pra gerar analises com IA (enviamos apenas nomes de musicas/artistas, nunca dados pessoais)</li>
             </ul>
           </section>
 
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-white">5. Como revogar acesso</h2>
-            <p>
-              Voce pode revogar o acesso do Spotaste a qualquer momento em{" "}
-              <a
-                href="https://www.spotify.com/account/apps/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-spotify-green hover:underline"
-              >
-                spotify.com/account/apps
-              </a>.
-              Apos revogar, o app nao consegue mais acessar seus dados do Spotify.
-            </p>
+            <p>Voce pode revogar o acesso do Spotaste a qualquer momento:</p>
+            <ul className="list-disc list-inside space-y-1 pl-2">
+              <li>
+                <strong>Spotify:</strong>{" "}
+                <a href="https://www.spotify.com/account/apps/" target="_blank" rel="noopener noreferrer" className="text-spotify-green hover:underline">
+                  spotify.com/account/apps
+                </a>
+              </li>
+              <li>
+                <strong>YouTube Music / Google:</strong>{" "}
+                <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer" className="text-spotify-green hover:underline">
+                  myaccount.google.com/permissions
+                </a>
+              </li>
+            </ul>
+            <p>Apos revogar, o app nao consegue mais acessar seus dados da plataforma.</p>
           </section>
 
           <section className="space-y-3">
