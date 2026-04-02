@@ -44,6 +44,11 @@ const FEATURE_MAP: {
   { key: "mood_acoustic", trackKey: "mood_acoustic", profileKey: "mood_acoustic" },
 ];
 
+// Mood features that must be present for a track to be considered fully analyzed
+const MOOD_KEYS: (keyof TrackFeatures)[] = [
+  "mood_happy", "mood_sad", "mood_relaxed", "mood_aggressive",
+];
+
 function scoreTrack(track: TrackFeatures, profile: VibeProfile): number {
   let weightedDistSum = 0;
   let weightSum = 0;
@@ -66,7 +71,10 @@ function scoreTrack(track: TrackFeatures, profile: VibeProfile): number {
 
   if (weightSum === 0) return 0;
 
-  return Math.max(0, 1 - Math.sqrt(weightedDistSum / weightSum));
+  // Use a softer curve: 1 - dist^1.2 instead of 1 - dist
+  // This compresses small differences and keeps scores higher
+  const rawDist = Math.sqrt(weightedDistSum / weightSum);
+  return Math.max(0, 1 - Math.pow(rawDist, 1.2));
 }
 
 export function matchTracks(
@@ -74,7 +82,12 @@ export function matchTracks(
   allTracks: TrackFeatures[],
   limit = 20
 ): ScoredTrack[] {
-  const scored = allTracks.map((track) => ({
+  // Filter out tracks without mood analysis data — they dilute match quality
+  const analyzed = allTracks.filter((t) =>
+    MOOD_KEYS.some((k) => t[k] != null)
+  );
+
+  const scored = analyzed.map((track) => ({
     track,
     score: scoreTrack(track, profile),
   }));

@@ -14,7 +14,7 @@ import { getTopArtists as lfmGetTopArtists, validateUser as lfmValidateUser, get
 import { analyzeTaste, generateVibeProfile, detectAndExtractArtists } from "./claude.js";
 import { getCachedAnalysis, setCachedAnalysis } from "./cache.js";
 import { analyzeWithEssentia } from "./essentia.js";
-import { initDb, getTrackFeatures, saveTrackFeatures, getQueueStatus, getAllTrackFeatures, addToQueue, savePlaylist, getPlaylistsByUser, getPublicPlaylists, getPlaylistWithTracks, rateTrack, getCachedJudge, setCachedJudge, hashArtists, trackExistsByName } from "./db.js";
+import { initDb, getTrackFeatures, saveTrackFeatures, getQueueStatus, getAllTrackFeatures, addToQueue, savePlaylist, getPlaylistsByUser, getPublicPlaylists, getPlaylistWithTracks, rateTrack, getCachedJudge, setCachedJudge, hashArtists, trackExistsByName, updateTrackSpotifyId } from "./db.js";
 import { startWorker } from "./worker.js";
 import { matchTracks } from "./matcher.js";
 import { searchYTTracks, getYTTopTracks, getYTUserInfo, createYTPlaylist, addToYTPlaylist } from "./ytmusic.js";
@@ -649,18 +649,40 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
         console.error("[playlist] YouTube Music API error:", ytErr.message);
       }
     } else if (platform === "spotify" && token) {
-      // 3b. Create Spotify playlist
+      // 3b. Create Spotify playlist — resolve non-Spotify IDs first
       try {
+        // Resolve lastfm_/ytmusic_ IDs to real Spotify track IDs
+        for (const s of scored) {
+          const id = s.track.spotify_id;
+          if (id.startsWith("lastfm_") || id.startsWith("ytmusic_")) {
+            try {
+              const query = `${s.track.track_name} ${s.track.artist_name}`;
+              const results = await searchTracks(token, query, 1);
+              if (results.length > 0) {
+                const oldId = s.track.spotify_id;
+                s.track.spotify_id = results[0].id;
+                // Update the DB so future playlists use the real ID
+                try { await updateTrackSpotifyId(oldId, results[0].id); } catch { /* dup ok */ }
+                console.log(`[playlist] resolved ${oldId} -> ${results[0].id}`);
+              }
+            } catch {
+              // Search failed, keep original ID (will be filtered)
+            }
+          }
+        }
+
+        const validTrackIds = scored
+          .map((s) => s.track.spotify_id)
+          .filter((id) => !id.startsWith("lastfm_") && !id.startsWith("ytmusic_"));
+
         const playlist = await createPlaylist(token, userId, playlistName, description);
         playlistExternalId = playlist.id;
         playlistUrl = playlist.url;
 
-        await addTracksToPlaylist(
-          token,
-          playlist.id,
-          scored.map((s) => s.track.spotify_id).filter((id) => !id.startsWith("lastfm_") && !id.startsWith("ytmusic_"))
-        );
-        console.log(`[playlist] created on Spotify: ${playlistUrl}`);
+        if (validTrackIds.length > 0) {
+          await addTracksToPlaylist(token, playlist.id, validTrackIds);
+        }
+        console.log(`[playlist] created on Spotify: ${playlistUrl} (${validTrackIds.length}/${scored.length} tracks)`);
       } catch (spotifyErr: any) {
         if (spotifyErr.response?.status === 403) {
           res.status(403).json({
