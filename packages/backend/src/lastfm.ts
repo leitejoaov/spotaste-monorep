@@ -174,10 +174,14 @@ export async function resolveArtistImage(
 
   try {
     const { data } = await axios.get("https://api.deezer.com/search/artist", {
-      params: { q: name, limit: 1 },
+      params: { q: name, limit: 5 },
       timeout: 5000,
     });
-    const img = data?.data?.[0]?.picture_big || data?.data?.[0]?.picture_medium || "";
+    // Find best match by name similarity to avoid wrong artist
+    const match = data?.data?.find(
+      (a: any) => a.name.toLowerCase() === name.toLowerCase()
+    ) || data?.data?.[0];
+    const img = match?.picture_big || match?.picture_medium || "";
     if (img) {
       await setLastfmCache("_global", cacheKey, { url: img });
     }
@@ -204,10 +208,14 @@ export async function resolveTrackImage(
 
   try {
     const { data } = await axios.get("https://api.deezer.com/search", {
-      params: { q: `artist:"${artistName}" track:"${trackName}"`, limit: 1 },
+      params: { q: `artist:"${artistName}" track:"${trackName}"`, limit: 5 },
       timeout: 5000,
     });
-    const img = data?.data?.[0]?.album?.cover_big || data?.data?.[0]?.album?.cover_medium || "";
+    // Prefer result matching the correct artist
+    const match = data?.data?.find(
+      (t: any) => t.artist?.name?.toLowerCase() === artistName.toLowerCase()
+    ) || data?.data?.[0];
+    const img = match?.album?.cover_big || match?.album?.cover_medium || "";
     if (img) {
       await setLastfmCache("_global", cacheKey, { url: img });
     }

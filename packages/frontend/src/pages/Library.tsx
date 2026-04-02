@@ -68,19 +68,24 @@ export default function Library() {
   const navigate = useNavigate();
 
   const [tracks, setTracks] = useState<TrackFeatures[]>([]);
+  const [totalTracks, setTotalTracks] = useState(0);
+  const [page, setPage] = useState(1);
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const PAGE_SIZE = 20;
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const fetchTracks = useCallback((query?: string) => {
+  const fetchTracks = useCallback((query?: string, p = 1) => {
     setLoading(true);
-    const url = query ? `/api/tracks?search=${encodeURIComponent(query)}` : "/api/tracks";
-    fetch(url)
+    const params = new URLSearchParams({ page: String(p), limit: String(PAGE_SIZE) });
+    if (query) params.set("search", query);
+    fetch(`/api/tracks?${params}`)
       .then((r) => r.json())
       .then((data) => {
-        setTracks(data);
+        setTracks(data.tracks);
+        setTotalTracks(data.total);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -90,10 +95,16 @@ export default function Library() {
   useEffect(() => {
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      fetchTracks(search || undefined);
+      setPage(1);
+      fetchTracks(search || undefined, 1);
     }, 400);
     return () => clearTimeout(debounceRef.current);
   }, [search, fetchTracks]);
+
+  // Refetch when page changes
+  useEffect(() => {
+    fetchTracks(search || undefined, page);
+  }, [page]);
 
   useEffect(() => {
     fetch("/api/queue-status")
@@ -104,16 +115,13 @@ export default function Library() {
     const interval = setInterval(() => {
       fetch("/api/queue-status")
         .then((r) => r.json())
-        .then((status) => {
-          setQueueStatus(status);
-          if (status.processing > 0 || status.pending > 0) {
-            fetchTracks(search || undefined);
-          }
-        })
+        .then(setQueueStatus)
         .catch(() => {});
     }, 10_000);
     return () => clearInterval(interval);
   }, []);
+
+  const totalPages = Math.ceil(totalTracks / PAGE_SIZE);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-spotify-dark via-[#0d1117] to-spotify-dark text-white">
@@ -146,7 +154,7 @@ export default function Library() {
           >
             <span className="flex items-center gap-1.5 text-sm font-medium text-white">
               <Disc3 size={16} className="text-spotify-green" />
-              {tracks.length} musicas analisadas
+              {totalTracks} musicas analisadas
             </span>
             {(queueStatus.pending > 0 || queueStatus.processing > 0) && (
               <span className="flex items-center gap-1.5 text-xs bg-yellow-500/10 border border-yellow-500/20 rounded-full px-3 py-1.5 text-yellow-400">
@@ -271,6 +279,29 @@ export default function Library() {
                 </motion.div>
               ))}
             </AnimatePresence>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-3 pt-4 pb-8">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white/70 hover:bg-white/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Anterior
+            </button>
+            <span className="text-sm text-spotify-text">
+              {page} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white/70 hover:bg-white/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Proxima
+            </button>
           </div>
         )}
       </main>

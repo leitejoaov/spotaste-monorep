@@ -5,7 +5,9 @@ import {
   Menu, X, Home, Flame, BarChart3, Headphones, Library,
   Sparkles, ListMusic, LogOut, Music, Settings,
 } from "lucide-react";
-import { clearAccessToken } from "../hooks/useAuth";
+import { clearAccessToken, getAccessToken } from "../hooks/useAuth";
+
+const SPOTIFY_ONLY = new Set(["/text-to-playlist", "/playlist-history"]);
 
 const NAV_ITEMS = [
   { path: "/hub", label: "Hub", icon: Home },
@@ -102,14 +104,19 @@ export default function Sidebar({ hubData = "" }: Props) {
             <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
               {NAV_ITEMS.map(({ path, label, icon: Icon }) => {
                 const isActive = currentPath === path;
+                const disabled = SPOTIFY_ONLY.has(path) && !getAccessToken();
                 return (
                   <button
                     key={path}
-                    onClick={() => handleNav(path)}
+                    onClick={() => !disabled && handleNav(path)}
+                    disabled={disabled}
+                    title={disabled ? "Requer login com Spotify" : undefined}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-sm transition-all ${
-                      isActive
-                        ? "bg-spotify-green/10 text-spotify-green font-medium"
-                        : "text-white/60 hover:bg-white/5 hover:text-white/90"
+                      disabled
+                        ? "text-white/20 cursor-not-allowed"
+                        : isActive
+                          ? "bg-spotify-green/10 text-spotify-green font-medium"
+                          : "text-white/60 hover:bg-white/5 hover:text-white/90"
                     }`}
                   >
                     <Icon size={18} />

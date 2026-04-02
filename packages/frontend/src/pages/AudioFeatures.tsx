@@ -178,13 +178,14 @@ export default function AudioFeatures() {
     };
   }, []);
 
-  const enqueueTrack = async (trackId: string) => {
+  const enqueueTrack = async (trackId: string, trackName?: string, artistName?: string, albumImage?: string | null) => {
     if (queue.some((q) => q.spotify_id === trackId)) return;
 
     try {
       const res = await fetch(`/api/enqueue-track/${trackId}`, {
         method: "POST",
-        headers: { ...getHeaders() },
+        headers: { "Content-Type": "application/json", ...getHeaders() },
+        body: JSON.stringify({ track_name: trackName, artist_name: artistName, album_image: albumImage }),
       });
 
       if (!res.ok) {
@@ -234,7 +235,7 @@ export default function AudioFeatures() {
     setInput("");
     setShowResults(false);
     setSearchResults([]);
-    enqueueTrack(result.id);
+    enqueueTrack(result.id, result.name, result.artist, result.image);
   };
 
   const pendingCount = queue.filter((q) => q.status === "pending" || q.status === "processing").length;
