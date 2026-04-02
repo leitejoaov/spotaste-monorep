@@ -4,7 +4,6 @@ import { motion } from "framer-motion";
 import { Music, Flame, BarChart3, Headphones, LogOut, Library, Sparkles, ListMusic, X, PlayCircle, ChevronDown, ChevronRight } from "lucide-react";
 import ArtistCard from "../components/ArtistCard";
 import ArtistModal from "../components/ArtistModal";
-import LastfmInput from "../components/LastfmInput";
 import { usePlatform } from "../context/PlatformContext";
 import { getAccessToken } from "../hooks/useAuth";
 
@@ -20,7 +19,7 @@ export default function Hub() {
   const [artists, setArtists] = useState<ArtistData[]>([]);
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  const { hasSpotify, hasLastfm, hasYTMusic, isLoggedIn, lastfmUser, setLastfmUser, setUserId, getHeaders, logout } = usePlatform();
+  const { hasSpotify, hasLastfm, hasYTMusic, isLoggedIn, lastfmUser, getHeaders, logout } = usePlatform();
   const accessToken = getAccessToken();
   const [lastfmArtists, setLastfmArtists] = useState<ArtistData[]>([]);
   const [ytmusicArtists, setYtmusicArtists] = useState<ArtistData[]>([]);
@@ -155,12 +154,6 @@ export default function Hub() {
     navigate("/");
   };
 
-  const handleLastfmSuccess = (userId: number, username: string) => {
-    setLastfmUser(username);
-    setUserId(userId);
-    setBannerDismissed(true);
-  };
-
   const missingPlatforms = !bannerDismissed && (!hasSpotify || !hasLastfm || !hasYTMusic);
 
   return (
@@ -192,41 +185,45 @@ export default function Hub() {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex flex-wrap gap-3 items-start"
+            className="flex items-center gap-2 flex-wrap"
           >
+            <span className="text-xs text-white/30 uppercase tracking-widest font-semibold mr-1">Conectar</span>
             {!hasSpotify && (
               <a
                 href={`${import.meta.env.VITE_API_URL || ""}/auth/login`}
-                className="flex items-center gap-2.5 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-white/20 transition-all"
+                className="flex items-center gap-2 px-3.5 py-2 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-spotify-green/30 transition-all"
               >
                 <svg className="w-4 h-4 text-spotify-green shrink-0" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
                 </svg>
-                <span className="text-sm text-white/80 font-medium">Conectar Spotify</span>
+                <span className="text-sm text-white/70 font-medium">Spotify</span>
               </a>
             )}
             {!hasLastfm && (
-              <div className="flex items-center gap-2.5 px-4 py-2 bg-white/5 border border-white/10 rounded-xl">
+              <button
+                onClick={() => navigate("/settings")}
+                className="flex items-center gap-2 px-3.5 py-2 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-[#d51007]/30 transition-all"
+              >
                 <svg className="w-4 h-4 text-[#d51007] shrink-0" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M10.584 17.21l-.88-2.392s-1.43 1.594-3.573 1.594c-1.897 0-3.244-1.649-3.244-4.288 0-3.382 1.704-4.591 3.381-4.591 2.422 0 3.19 1.567 3.849 3.574l.88 2.749c.88 2.666 2.529 4.81 7.285 4.81 3.409 0 5.718-1.044 5.718-3.793 0-2.227-1.265-3.381-3.63-3.932l-1.758-.385c-1.21-.275-1.567-.77-1.567-1.595 0-.934.742-1.484 1.952-1.484 1.32 0 2.034.495 2.144 1.677l2.749-.33c-.22-2.474-1.924-3.492-4.729-3.492-2.474 0-4.893.935-4.893 3.932 0 1.87.907 3.051 3.189 3.602l1.87.44c1.402.33 1.87.825 1.87 1.65 0 .99-.962 1.4-2.776 1.4-2.694 0-3.822-1.413-4.453-3.382l-.907-2.749c-1.155-3.573-2.997-4.893-6.653-4.893C2.144 5.333 0 7.89 0 12.233c0 4.18 2.144 6.434 5.993 6.434 3.106 0 4.591-1.457 4.591-1.457z" />
                 </svg>
-                <LastfmInput onSuccess={handleLastfmSuccess} buttonText="Conectar Last.fm" compact />
-              </div>
+                <span className="text-sm text-white/70 font-medium">Last.fm</span>
+              </button>
             )}
             {!hasYTMusic && (
               <button
-                onClick={() => navigate("/?connectYT=1")}
-                className="flex items-center gap-2.5 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-white/20 transition-all"
+                onClick={() => navigate("/")}
+                className="flex items-center gap-2 px-3.5 py-2 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-red-500/30 transition-all"
               >
                 <PlayCircle className="w-4 h-4 text-red-500 shrink-0" />
-                <span className="text-sm text-white/80 font-medium">Conectar YouTube Music</span>
+                <span className="text-sm text-white/70 font-medium">YouTube Music</span>
               </button>
             )}
             <button
               onClick={() => setBannerDismissed(true)}
-              className="p-2 rounded-lg hover:bg-white/10 transition-colors flex-shrink-0 self-center"
+              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
             >
-              <X size={14} className="text-white/30" />
+              <X size={12} className="text-white/20" />
             </button>
           </motion.div>
         )}
