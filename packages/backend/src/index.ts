@@ -1069,6 +1069,10 @@ app.get("/privacy", (_req, res) => {
   res.redirect("/#/privacy");
 });
 
+app.get("/terms", (_req, res) => {
+  res.redirect("/#/terms");
+});
+
 // Production: serve frontend static files
 if (process.env.NODE_ENV === "production") {
   const frontendDist = path.resolve(process.cwd(), "../frontend/dist");
