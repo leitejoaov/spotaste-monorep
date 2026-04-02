@@ -35,6 +35,33 @@ app.use(lastfmAuthRouter);
 app.use(ytmusicAuthRouter);
 app.use(settingsRouter);
 
+/**
+ * Resolve the caller's verified user ID from request headers.
+ * Trusts Spotify token and YouTube Music token (server-verified).
+ * Never trusts x-user-id alone — it must match a verified credential.
+ */
+async function resolveCallerId(req: express.Request): Promise<string | null> {
+  // 1. Spotify token — most reliable
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (token) {
+    try {
+      return await getSpotifyUserId(token);
+    } catch { /* invalid token */ }
+  }
+
+  // 2. YouTube Music token — verify via ytmusic-service
+  const ytTokenB64 = req.headers["x-ytmusic-token"] as string | undefined;
+  if (ytTokenB64) {
+    try {
+      const ytToken = JSON.parse(Buffer.from(ytTokenB64, "base64").toString("utf-8"));
+      const info = await getYTUserInfo(ytToken);
+      if (info.channelId) return info.channelId;
+    } catch { /* invalid yt token */ }
+  }
+
+  return null;
+}
+
 app.post("/api/judge", claudeLimiter, async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
   const lastfmUser = req.headers["x-lastfm-user"] as string | undefined;
@@ -480,14 +507,7 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
   }
 
   try {
-    let userId: string;
-    if (token) {
-      userId = await getSpotifyUserId(token);
-    } else if (userIdHeader) {
-      userId = userIdHeader;
-    } else {
-      userId = "anonymous";
-    }
+    const userId = await resolveCallerId(req) || "anonymous";
 
     console.log(`[playlist] generating for "${description}" on ${platform} (user: ${userId})`);
 
@@ -574,7 +594,7 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
       playlistName = vibeProfile.playlist_name;
       console.log(`[playlist] vibe profile: ${playlistName}`);
 
-      const { tracks: allTracks } = await getAllTrackFeatures(undefined, 1, 100000);
+      const { tracks: allTracks } = await getAllTrackFeatures(undefined, 1, 5000);
       scored = matchTracks(vibeProfile, allTracks);
 
       if (scored.length < 5) {
@@ -694,10 +714,9 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
 });
 
 app.post("/api/playlist/:id/rate", async (req, res) => {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  const userIdHeader = req.headers["x-user-id"] as string | undefined;
-  if (!token && !userIdHeader) {
-    res.status(401).json({ error: "Missing access token" });
+  const callerId = await resolveCallerId(req);
+  if (!callerId) {
+    res.status(401).json({ error: "Auth required" });
     return;
   }
 
@@ -715,6 +734,17 @@ app.post("/api/playlist/:id/rate", async (req, res) => {
   }
 
   try {
+    // Ownership check: only the playlist owner can rate
+    const result = await getPlaylistWithTracks(playlistId);
+    if (!result) {
+      res.status(404).json({ error: "Playlist nao encontrada" });
+      return;
+    }
+    if (result.playlist.user_spotify_id !== callerId) {
+      res.status(403).json({ error: "Acesso negado" });
+      return;
+    }
+
     const accuracy = await rateTrack(playlistId, spotifyId, rating);
     res.json(accuracy);
   } catch (error: any) {
@@ -734,34 +764,15 @@ app.get("/api/playlist/public", apiLimiter, async (_req, res) => {
 });
 
 app.get("/api/playlist/history", async (req, res) => {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  const userIdHeader = req.headers["x-user-id"] as string | undefined;
-
-  if (!token && !userIdHeader) {
-    res.status(401).json({ error: "Missing access token" });
-    return;
-  }
-
   try {
-    // Collect all possible user IDs to search playlists for
-    const userIds: string[] = [];
-    if (token) {
-      try { userIds.push(await getSpotifyUserId(token)); } catch { /* no spotify */ }
-    }
-    if (userIdHeader) {
-      userIds.push(userIdHeader);
-    }
-    if (userIds.length === 0) {
-      res.json([]);
+    const callerId = await resolveCallerId(req);
+    if (!callerId) {
+      res.status(401).json({ error: "Auth required" });
       return;
     }
 
-    // Fetch playlists for all user IDs (covers Spotify + YouTube users)
-    const allPlaylists = await Promise.all(userIds.map((id) => getPlaylistsByUser(id)));
-    const merged = allPlaylists.flat().sort((a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-    res.json(merged);
+    const playlists = await getPlaylistsByUser(callerId);
+    res.json(playlists);
   } catch (error: any) {
     console.error("[playlist-history] ERROR:", error);
     res.status(500).json({ error: "Falha ao buscar historico" });
@@ -779,25 +790,11 @@ app.get("/api/playlist/:id", async (req, res) => {
     // Public playlists are accessible to anyone
     const isPublic = (result.playlist as any).is_public;
     if (!isPublic) {
-      // Private playlist — require ownership
-      const token = req.headers.authorization?.replace("Bearer ", "");
-      const userIdHeader = req.headers["x-user-id"] as string | undefined;
-
-      if (!token && !userIdHeader) {
-        res.status(401).json({ error: "Auth required" });
-        return;
-      }
-
-      const ownerIds: string[] = [];
-      if (token) {
-        try { ownerIds.push(await getSpotifyUserId(token)); } catch { /* no spotify */ }
-      }
-      if (userIdHeader) {
-        ownerIds.push(userIdHeader);
-      }
-
+      // Private playlist — require verified ownership (default-deny)
+      const callerId = await resolveCallerId(req);
       const storedOwner = result.playlist.user_spotify_id;
-      if (storedOwner && ownerIds.length > 0 && !ownerIds.includes(storedOwner)) {
+
+      if (!callerId || !storedOwner || callerId !== storedOwner) {
         res.status(403).json({ error: "Acesso negado" });
         return;
       }
