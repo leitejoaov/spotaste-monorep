@@ -49,6 +49,9 @@ const MOOD_KEYS: (keyof TrackFeatures)[] = [
   "mood_happy", "mood_sad", "mood_relaxed", "mood_aggressive",
 ];
 
+// Tags that are metadata markers, not real theme tags
+const IGNORE_TAGS = new Set(["instrumental", "unknown", "error"]);
+
 function scoreTrack(track: TrackFeatures, profile: VibeProfile): number {
   let weightedDistSum = 0;
   let weightSum = 0;
@@ -72,9 +75,23 @@ function scoreTrack(track: TrackFeatures, profile: VibeProfile): number {
   if (weightSum === 0) return 0;
 
   // Use a softer curve: 1 - dist^1.2 instead of 1 - dist
-  // This compresses small differences and keeps scores higher
   const rawDist = Math.sqrt(weightedDistSum / weightSum);
-  return Math.max(0, 1 - Math.pow(rawDist, 1.2));
+  let audioScore = Math.max(0, 1 - Math.pow(rawDist, 1.2));
+
+  // Lyrics tag boost: if the vibe profile has theme_tags, boost tracks with matching tags
+  const vibeTags = profile.theme_tags;
+  const trackTags = track.lyrics_tags;
+  if (vibeTags && vibeTags.length > 0 && trackTags && trackTags.length > 0) {
+    const vibeSet = new Set(vibeTags.map((t) => t.toLowerCase()));
+    const matchingTags = trackTags.filter((t) => !IGNORE_TAGS.has(t) && vibeSet.has(t));
+    if (matchingTags.length > 0) {
+      // Boost: up to +10% for 3+ matching tags
+      const boost = Math.min(matchingTags.length / 3, 1.0) * 0.10;
+      audioScore = Math.min(1, audioScore + boost);
+    }
+  }
+
+  return audioScore;
 }
 
 export function matchTracks(

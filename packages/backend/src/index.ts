@@ -11,10 +11,11 @@ import settingsRouter from "./routes/settings.js";
 import { getTopTracks, getSpotifyUserId, getTrackDetails, searchTracks, createPlaylist, addTracksToPlaylist, searchArtist, getArtistTopTracks } from "./spotify.js";
 import { getMusicTasteAnalysis, getEnrichedMusicTasteAnalysis } from "./judge.js";
 import { getTopArtists as lfmGetTopArtists, validateUser as lfmValidateUser, getTopTracks as lfmGetTopTracks, getTrackInfo as lfmGetTrackInfo, searchTrack as lfmSearchTrack, getArtistInfo as lfmGetArtistInfo, getArtistTopTracks as lfmGetArtistTopTracks, getSimilarArtists as lfmGetSimilarArtists, resolveTrackImage, resolveArtistImage } from "./lastfm.js";
-import { analyzeTaste, generateVibeProfile, detectAndExtractArtists } from "./claude.js";
+import { analyzeTaste, generateVibeProfile, detectAndExtractArtists, analyzeLyrics } from "./claude.js";
+import { fetchLyrics } from "./lyrics.js";
 import { getCachedAnalysis, setCachedAnalysis } from "./cache.js";
 import { analyzeWithEssentia } from "./essentia.js";
-import { initDb, getTrackFeatures, saveTrackFeatures, getQueueStatus, getAllTrackFeatures, addToQueue, savePlaylist, getPlaylistsByUser, getPublicPlaylists, getPlaylistWithTracks, rateTrack, getCachedJudge, setCachedJudge, hashArtists, trackExistsByName, updateTrackSpotifyId } from "./db.js";
+import { initDb, getTrackFeatures, saveTrackFeatures, getQueueStatus, getAllTrackFeatures, addToQueue, savePlaylist, getPlaylistsByUser, getPublicPlaylists, getPlaylistWithTracks, rateTrack, getCachedJudge, setCachedJudge, hashArtists, trackExistsByName, updateTrackSpotifyId, saveLyricsTags, pool } from "./db.js";
 import { startWorker } from "./worker.js";
 import { matchTracks } from "./matcher.js";
 import { searchYTTracks, getYTTopTracks, getYTUserInfo, createYTPlaylist, addToYTPlaylist } from "./ytmusic.js";
@@ -1076,6 +1077,81 @@ app.get("/api/recommended-artists", apiLimiter, async (req, res) => {
   } catch (error: any) {
     console.error("[recommended-artists] ERROR:", error.message);
     res.status(500).json({ error: "Failed to get recommended artists" });
+  }
+});
+
+// Admin: re-analyze all tracks for lyrics tags
+app.post("/api/admin/reanalyze-lyrics", async (req, res) => {
+  const adminKey = req.headers["x-admin-key"] as string;
+  if (adminKey !== config.anthropicApiKey?.slice(-10)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  try {
+    const { mode = "inline" } = req.body || {};
+
+    if (mode === "reset") {
+      const result = await pool.query(
+        "UPDATE track_features SET lyrics_tags = '{}' WHERE mood_happy IS NOT NULL"
+      );
+      res.json({ message: `Reset ${result.rowCount} tracks. Worker will process them over time.` });
+      return;
+    }
+
+    // Select tracks based on mode
+    let query: string;
+    if (mode === "retry-instrumental") {
+      // Only re-process tracks that were marked instrumental (no lyrics found)
+      query = "SELECT * FROM track_features WHERE lyrics_tags = '{instrumental}' ORDER BY analyzed_at DESC";
+    } else {
+      // Process all tracks
+      query = "SELECT * FROM track_features WHERE mood_happy IS NOT NULL ORDER BY analyzed_at DESC";
+    }
+    const { rows: tracks } = await pool.query(query);
+
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Transfer-Encoding", "chunked");
+    res.write(`Starting lyrics analysis for ${tracks.length} tracks...\n`);
+
+    let done = 0;
+    let found = 0;
+    let notFound = 0;
+
+    for (const track of tracks) {
+      done++;
+      try {
+        const lyrics = await fetchLyrics(track.artist_name, track.track_name);
+        if (!lyrics) {
+          await saveLyricsTags(track.spotify_id, ["instrumental"], null);
+          notFound++;
+          res.write(`[${done}/${tracks.length}] ${track.track_name} - ${track.artist_name} -> no lyrics (instrumental)\n`);
+          continue;
+        }
+
+        const analysis = await analyzeLyrics(track.track_name, track.artist_name, lyrics);
+        if (analysis) {
+          await saveLyricsTags(track.spotify_id, analysis.tags, analysis.language);
+          found++;
+          res.write(`[${done}/${tracks.length}] ${track.track_name} - ${track.artist_name} -> [${analysis.tags.join(", ")}] (${analysis.language})\n`);
+        } else {
+          await saveLyricsTags(track.spotify_id, ["unknown"], null);
+          notFound++;
+          res.write(`[${done}/${tracks.length}] ${track.track_name} - ${track.artist_name} -> analysis failed\n`);
+        }
+      } catch (err: any) {
+        await saveLyricsTags(track.spotify_id, ["error"], null).catch(() => {});
+        res.write(`[${done}/${tracks.length}] ${track.track_name} - ${track.artist_name} -> ERROR: ${err.message}\n`);
+      }
+    }
+
+    res.write(`\nDone! ${found} with lyrics, ${notFound} without, ${tracks.length} total.\n`);
+    res.end();
+  } catch (error: any) {
+    console.error("[admin-reanalyze] ERROR:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to start reanalysis" });
+    }
   }
 });
 

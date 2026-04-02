@@ -10,7 +10,7 @@ const DATABASE_URL =
   process.env.DATABASE_URL ||
   "postgresql://spotaste:spotaste@localhost:5432/spotaste";
 
-const pool = new pg.Pool({ connectionString: DATABASE_URL });
+export const pool = new pg.Pool({ connectionString: DATABASE_URL });
 
 export async function initDb(): Promise<void> {
   const schema = readFileSync(
@@ -68,6 +68,12 @@ export async function initDb(): Promise<void> {
     console.log("[db] migration 008 applied");
   }
 
+  const migration009Path = resolve(__dirname, "../../../db/migrate_009_lyrics.sql");
+  if (existsSync(migration009Path)) {
+    await pool.query(readFileSync(migration009Path, "utf-8"));
+    console.log("[db] migration 009 applied");
+  }
+
   console.log("[db] schema initialized");
 }
 
@@ -88,6 +94,8 @@ export interface TrackFeatures {
   mood_party: number | null;
   voice_instrumental: number | null;
   mood_acoustic: number | null;
+  lyrics_tags: string[];
+  lyrics_language: string | null;
   analyzed_at: string;
 }
 
@@ -153,6 +161,28 @@ export async function saveTrackFeatures(
       features.mood_acoustic ?? null,
     ]
   );
+}
+
+export async function saveLyricsTags(
+  spotifyId: string,
+  tags: string[],
+  language: string | null
+): Promise<void> {
+  await pool.query(
+    `UPDATE track_features SET lyrics_tags = $1, lyrics_language = $2 WHERE spotify_id = $3`,
+    [tags, language, spotifyId]
+  );
+}
+
+export async function getTracksWithoutLyrics(limit = 5): Promise<TrackFeatures[]> {
+  const { rows } = await pool.query(
+    `SELECT * FROM track_features
+     WHERE mood_happy IS NOT NULL
+       AND (lyrics_tags IS NULL OR lyrics_tags = '{}')
+     ORDER BY analyzed_at DESC LIMIT $1`,
+    [limit]
+  );
+  return rows;
 }
 
 export interface QueueItem {
