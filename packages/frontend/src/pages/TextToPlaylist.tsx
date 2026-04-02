@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, ArrowLeft, Loader2, ExternalLink, Music2, ChevronDown, ChevronUp, BarChart3, Info } from "lucide-react";
+import { Sparkles, ArrowLeft, Loader2, ExternalLink, Music2, ChevronDown, ChevronUp, BarChart3, Info, Music, PlayCircle } from "lucide-react";
 import TrackRating from "../components/TrackRating";
 import { usePlatform } from "../context/PlatformContext";
 
@@ -34,6 +34,7 @@ interface GeneratedPlaylist {
   name: string;
   description: string;
   spotify_url: string | null;
+  platform?: "spotify" | "ytmusic";
   vibe_profile: VibeProfile;
   tracks: PlaylistTrack[];
 }
@@ -42,7 +43,7 @@ const LOADING_PHRASES = [
   "Analisando a vibe do seu texto...",
   "A IA ta montando o perfil sonoro...",
   "Buscando as tracks perfeitas...",
-  "Criando a playlist no Spotify...",
+  "Criando a playlist...",
   "Quase la, so mais um pouquinho...",
 ];
 
@@ -73,8 +74,12 @@ function MiniBar({ value, color }: { value: number; color: string }) {
 export default function TextToPlaylist() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { getHeaders, hasSpotify } = usePlatform();
+  const { getHeaders, hasSpotify, hasYTMusic } = usePlatform();
 
+  const canCreatePlaylist = hasSpotify || hasYTMusic;
+  const [selectedPlatform, setSelectedPlatform] = useState<"spotify" | "ytmusic">(
+    hasSpotify ? "spotify" : "ytmusic"
+  );
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingPhrase, setLoadingPhrase] = useState(0);
@@ -104,7 +109,7 @@ export default function TextToPlaylist() {
           "Content-Type": "application/json",
           ...getHeaders(),
         },
-        body: JSON.stringify({ description: description.trim() }),
+        body: JSON.stringify({ description: description.trim(), platform: selectedPlatform }),
       });
 
       if (!res.ok) {
@@ -186,9 +191,47 @@ export default function TextToPlaylist() {
             rows={3}
             className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-amber-400/50 transition-colors text-sm resize-none"
           />
+          {/* Platform selector */}
+          {hasSpotify && hasYTMusic && (
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setSelectedPlatform("spotify")}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                  selectedPlatform === "spotify"
+                    ? "bg-spotify-green/10 border-spotify-green/30 text-spotify-green"
+                    : "bg-white/5 border-white/10 text-white/40 hover:bg-white/[0.08]"
+                }`}
+              >
+                <Music size={16} />
+                Spotify
+              </button>
+              <button
+                onClick={() => setSelectedPlatform("ytmusic")}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                  selectedPlatform === "ytmusic"
+                    ? "bg-red-500/10 border-red-500/30 text-red-400"
+                    : "bg-white/5 border-white/10 text-white/40 hover:bg-white/[0.08]"
+                }`}
+              >
+                <PlayCircle size={16} />
+                YouTube Music
+              </button>
+            </div>
+          )}
+
+          {/* No playlist platform warning */}
+          {!canCreatePlaylist && (
+            <div className="mt-4 bg-white/5 border border-white/10 rounded-xl p-4 text-center">
+              <p className="text-sm text-white/60 flex items-center justify-center gap-2">
+                <Info size={16} className="text-amber-400 shrink-0" />
+                Conecte Spotify ou YouTube Music para criar playlists
+              </p>
+            </div>
+          )}
+
           <button
             onClick={handleGenerate}
-            disabled={loading || description.trim().length < 3}
+            disabled={loading || description.trim().length < 3 || !canCreatePlaylist}
             className="mt-4 w-full px-5 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-black font-bold text-sm flex items-center justify-center gap-2"
           >
             {loading ? (
@@ -241,21 +284,20 @@ export default function TextToPlaylist() {
             >
               <h2 className="font-display font-bold text-xl text-white mb-1">{playlist.name}</h2>
               <p className="text-sm text-spotify-text mb-4">"{playlist.description}"</p>
-              {hasSpotify && playlist.spotify_url ? (
+              {playlist.spotify_url ? (
                 <a
                   href={playlist.spotify_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-spotify-green/20 text-spotify-green text-sm font-medium hover:bg-spotify-green/30 transition-colors"
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    playlist.platform === "ytmusic"
+                      ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                      : "bg-spotify-green/20 text-spotify-green hover:bg-spotify-green/30"
+                  }`}
                 >
                   <ExternalLink size={14} />
-                  Abrir no Spotify
+                  {playlist.platform === "ytmusic" ? "Abrir no YouTube Music" : "Abrir no Spotify"}
                 </a>
-              ) : !hasSpotify ? (
-                <p className="inline-flex items-center gap-2 text-xs text-white/40">
-                  <Info size={14} />
-                  Conecte o Spotify nas configuracoes pra salvar playlists
-                </p>
               ) : null}
             </motion.div>
 

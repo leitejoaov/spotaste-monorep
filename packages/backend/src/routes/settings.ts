@@ -2,6 +2,7 @@ import { Router } from "express";
 import { getUserById, linkPlatform } from "../db.js";
 import { validateUser } from "../lastfm.js";
 import { getSpotifyUserId } from "../spotify.js";
+import { backfillSpotifyIds } from "../worker.js";
 
 const router = Router();
 
@@ -81,6 +82,10 @@ router.post("/api/settings/link-spotify", async (req, res) => {
   try {
     const spotifyUserId = await getSpotifyUserId(token);
     const updated = await linkPlatform(user.id, "spotify", spotifyUserId);
+
+    // Fire-and-forget: backfill Spotify IDs for tracks that only have lastfm/ytmusic IDs
+    backfillSpotifyIds(token).catch(() => {});
+
     res.json({ connected: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

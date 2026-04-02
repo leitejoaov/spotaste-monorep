@@ -15,4 +15,5 @@ export const config = {
   frontendUrl: process.env.FRONTEND_URL || "http://127.0.0.1:5173",
   anthropicApiKey: process.env.ANTHROPIC_API_KEY!,
   lastfmApiKey: process.env.LASTFM_API_KEY || "",
+  ytmusicServiceUrl: process.env.YTMUSIC_SERVICE_URL || "http://127.0.0.1:5002",
 };

@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import { config } from "../config.js";
 import { getAuthUrl, exchangeCode, getTopArtists, getTopTracks, getSpotifyUserId } from "../spotify.js";
 import { addToQueue, getTrackFeatures, trackExistsByName, findOrCreateUser } from "../db.js";
+import { backfillSpotifyIds } from "../worker.js";
 
 export const authRouter = Router();
 
@@ -83,6 +84,9 @@ authRouter.get("/callback", async (req, res) => {
         console.error("[callback] failed to enqueue tracks:", err);
       }
     })();
+
+    // Fire-and-forget: backfill Spotify IDs for tracks that only have lastfm/ytmusic IDs
+    backfillSpotifyIds(accessToken).catch(() => {});
 
     // Redirect to frontend callback page that stores token in sessionStorage
     // Token is in a hash fragment (not query param) so it's not sent to servers or logged

@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { clearAccessToken, getAccessToken } from "../hooks/useAuth";
 
-const SPOTIFY_ONLY = new Set(["/text-to-playlist", "/playlist-history"]);
+const PLAYLIST_PLATFORMS = new Set(["/text-to-playlist", "/playlist-history"]);
 
 const NAV_ITEMS = [
   { path: "/hub", label: "Hub", icon: Home },
@@ -104,7 +104,7 @@ export default function Sidebar({ hubData = "" }: Props) {
             <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
               {NAV_ITEMS.map(({ path, label, icon: Icon }) => {
                 const isActive = currentPath === path;
-                const disabled = SPOTIFY_ONLY.has(path) && !getAccessToken();
+                const disabled = PLAYLIST_PLATFORMS.has(path) && !getAccessToken() && !sessionStorage.getItem("spotaste_ytmusic_token");
                 return (
                   <button
                     key={path}

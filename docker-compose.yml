@@ -4,6 +4,14 @@ services:
     ports:
       - "5001:5001"
 
+  ytmusic-service:
+    build: ./ytmusic-service
+    ports:
+      - "5002:5002"
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -11,7 +19,7 @@ services:
       POSTGRES_PASSWORD: spotaste
       POSTGRES_DB: spotaste
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 

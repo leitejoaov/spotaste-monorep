@@ -17,7 +17,6 @@ export default function AuthCallback() {
       if (userId) {
         setUserId(Number(userId));
       }
-      // Navigate to hub, replacing history so back button doesn't return here
       navigate(`/hub?artists=${artists || ""}`, { replace: true });
     } else {
       navigate("/", { replace: true });

@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { config } from "./config.js";
 import { authRouter } from "./routes/auth.js";
 import lastfmAuthRouter from "./routes/auth-lastfm.js";
+import ytmusicAuthRouter from "./routes/auth-ytmusic.js";
 import settingsRouter from "./routes/settings.js";
 import { getTopTracks, getSpotifyUserId, getTrackDetails, searchTracks, createPlaylist, addTracksToPlaylist, searchArtist, getArtistTopTracks } from "./spotify.js";
 import { getMusicTasteAnalysis, getEnrichedMusicTasteAnalysis } from "./judge.js";
@@ -13,11 +14,13 @@ import { getTopArtists as lfmGetTopArtists, validateUser as lfmValidateUser, get
 import { analyzeTaste, generateVibeProfile } from "./claude.js";
 import { getCachedAnalysis, setCachedAnalysis } from "./cache.js";
 import { analyzeWithEssentia } from "./essentia.js";
-import { initDb, getTrackFeatures, saveTrackFeatures, getQueueStatus, getAllTrackFeatures, addToQueue, savePlaylist, getPlaylistsByUser, getPlaylistWithTracks, rateTrack, getCachedJudge, setCachedJudge, hashArtists } from "./db.js";
+import { initDb, getTrackFeatures, saveTrackFeatures, getQueueStatus, getAllTrackFeatures, addToQueue, savePlaylist, getPlaylistsByUser, getPlaylistWithTracks, rateTrack, getCachedJudge, setCachedJudge, hashArtists, trackExistsByName } from "./db.js";
 import { startWorker } from "./worker.js";
 import { matchTracks } from "./matcher.js";
+import { searchYTTracks, getYTTopTracks, getYTUserInfo, createYTPlaylist, addToYTPlaylist } from "./ytmusic.js";
 
 const app = express();
+app.set("trust proxy", 1);
 
 // Rate limiters
 const apiLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false });
@@ -29,13 +32,16 @@ app.use("/api/", apiLimiter);
 
 app.use("/auth", authRouter);
 app.use(lastfmAuthRouter);
+app.use(ytmusicAuthRouter);
 app.use(settingsRouter);
 
 app.post("/api/judge", claudeLimiter, async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
   const lastfmUser = req.headers["x-lastfm-user"] as string | undefined;
+  const ytmusicToken = req.headers["x-ytmusic-token"] as string | undefined;
   const userId_header = req.headers["x-user-id"] as string | undefined;
   const { artists } = req.body;
+  const platform = ytmusicToken ? "ytmusic" : lastfmUser ? "lastfm" : "spotify";
   if (!artists || !Array.isArray(artists) || artists.length > 50) {
     res.status(400).json({ error: "Missing or invalid artists data" });
     return;
@@ -87,10 +93,11 @@ app.post("/api/judge", claudeLimiter, async (req, res) => {
         analysis = await getEnrichedMusicTasteAnalysis(
           enrichedArtists,
           userInfo?.playcount,
-          userInfo?.registered
+          userInfo?.registered,
+          platform
         );
       } else {
-        analysis = await getMusicTasteAnalysis(artists);
+        analysis = await getMusicTasteAnalysis(artists, platform);
       }
 
       await setCachedJudge(cacheUserId, artHash, JSON.stringify(analysis));
@@ -99,7 +106,7 @@ app.post("/api/judge", claudeLimiter, async (req, res) => {
     }
 
     // No token, no lastfm — just generate without caching
-    const analysis = await getMusicTasteAnalysis(artists);
+    const analysis = await getMusicTasteAnalysis(artists, platform);
     res.json({ analysis });
   } catch (error: any) {
     console.error("[judge] ERROR:", error);
@@ -110,16 +117,25 @@ app.post("/api/judge", claudeLimiter, async (req, res) => {
 app.get("/api/analyze-taste", claudeLimiter, async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
   const lastfmUser = req.headers["x-lastfm-user"] as string | undefined;
+  const ytTokenB64 = req.headers["x-ytmusic-token"] as string | undefined;
 
-  if (!token && !lastfmUser) {
-    res.status(401).json({ error: "Missing access token or Last.fm user" });
+  if (!token && !lastfmUser && !ytTokenB64) {
+    res.status(401).json({ error: "Missing access token, Last.fm user, or YouTube Music token" });
     return;
   }
 
   try {
     // Determine cache key
     let cacheKey: string;
-    if (lastfmUser) {
+    if (ytTokenB64) {
+      let channelId = "unknown";
+      try {
+        const ytToken = JSON.parse(Buffer.from(ytTokenB64, "base64").toString("utf-8"));
+        const ytInfo = await getYTUserInfo(ytToken);
+        channelId = ytInfo?.channelId || "unknown";
+      } catch { /* use fallback */ }
+      cacheKey = `ytmusic_${channelId}`;
+    } else if (lastfmUser) {
       cacheKey = `lastfm_${lastfmUser}`;
     } else {
       cacheKey = await getSpotifyUserId(token!);
@@ -165,7 +181,22 @@ app.get("/api/analyze-taste", claudeLimiter, async (req, res) => {
 
     let spotifyTracks: any[];
 
-    if (lastfmUser) {
+    if (ytTokenB64) {
+      // Use YouTube Music top tracks as data source
+      const ytToken = JSON.parse(Buffer.from(ytTokenB64, "base64").toString("utf-8"));
+      const ytTracks = await getYTTopTracks(ytToken, 20);
+      spotifyTracks = ytTracks.map((yt) => ({
+        id: `ytmusic_${yt.videoId || yt.title}_${yt.artist}`.slice(0, 60),
+        name: yt.title,
+        artists: [{ name: yt.artist }],
+        album: {
+          name: yt.album || "",
+          images: yt.thumbnail ? [{ url: yt.thumbnail }] : [],
+        },
+        popularity: 50,
+        tags: [],
+      }));
+    } else if (lastfmUser) {
       // Use Last.fm top tracks as data source
       const lfmTracks = await lfmGetTopTracks(lastfmUser, "overall", 20);
       // Enrich with tags and images (Deezer fallback for covers)
@@ -231,6 +262,7 @@ app.get("/api/analyze-taste", claudeLimiter, async (req, res) => {
 
 app.get("/api/search-tracks", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
+  const ytTokenB64 = req.headers["x-ytmusic-token"] as string | undefined;
 
   const q = req.query.q as string;
   if (!q || q.trim().length < 2) {
@@ -249,6 +281,18 @@ app.get("/api/search-tracks", async (req, res) => {
         album: t.album.name,
         image: t.album.images?.[2]?.url ?? t.album.images?.[0]?.url ?? null,
         source: "spotify" as const,
+      })));
+    } else if (ytTokenB64) {
+      // YouTube Music search
+      const ytToken = JSON.parse(Buffer.from(ytTokenB64, "base64").toString("utf-8"));
+      const results = await searchYTTracks(ytToken, q);
+      res.json(results.map((t) => ({
+        id: `ytmusic_${t.videoId}`,
+        name: t.title,
+        artist: t.artist,
+        album: t.album || "",
+        image: t.thumbnail || null,
+        source: "ytmusic" as const,
       })));
     } else {
       // Last.fm fallback search with Deezer images
@@ -334,15 +378,14 @@ app.post("/api/enqueue-track/:trackId", async (req, res) => {
       return;
     }
 
-    if (trackId.startsWith("lastfm_")) {
-      // Last.fm track — extract name and artist from the ID
-      const parts = trackId.replace("lastfm_", "").split("_");
-      const trackName = req.body.track_name || parts[0] || "Unknown";
-      const artistName = req.body.artist_name || parts[1] || "Unknown";
+    if (trackId.startsWith("lastfm_") || trackId.startsWith("ytmusic_")) {
+      // Last.fm or YT Music track — use name/artist from body
+      const trackName = req.body.track_name || "Unknown";
+      const artistName = req.body.artist_name || "Unknown";
       const albumImage = req.body.album_image || await resolveTrackImage(trackName, artistName, "");
 
       await addToQueue(trackId, trackName, artistName);
-      console.log(`[enqueue] queued (lastfm): ${trackName} - ${artistName}`);
+      console.log(`[enqueue] queued (${trackId.startsWith("lastfm_") ? "lastfm" : "ytmusic"}): ${trackName} - ${artistName}`);
 
       res.json({ spotify_id: trackId, track_name: trackName, artist_name: artistName, album_image: albumImage, status: "pending" });
       return;
@@ -417,20 +460,36 @@ app.get("/api/tracks", async (req, res) => {
 
 app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token) {
-    res.status(401).json({ error: "Missing access token" });
+  const ytTokenB64 = req.headers["x-ytmusic-token"] as string | undefined;
+  const userIdHeader = req.headers["x-user-id"] as string | undefined;
+
+  const { description, platform = "spotify" } = req.body;
+
+  if (platform === "spotify" && !token) {
+    res.status(401).json({ error: "Missing Spotify access token" });
+    return;
+  }
+  if (platform === "ytmusic" && !ytTokenB64) {
+    res.status(401).json({ error: "Missing YouTube Music token" });
     return;
   }
 
-  const { description } = req.body;
   if (!description || typeof description !== "string" || description.trim().length < 3 || description.length > 500) {
     res.status(400).json({ error: "Descricao deve ter entre 3 e 500 caracteres" });
     return;
   }
 
   try {
-    const userId = await getSpotifyUserId(token);
-    console.log(`[playlist] generating for "${description}" (user: ${userId})`);
+    let userId: string;
+    if (token) {
+      userId = await getSpotifyUserId(token);
+    } else if (userIdHeader) {
+      userId = userIdHeader;
+    } else {
+      userId = "anonymous";
+    }
+
+    console.log(`[playlist] generating for "${description}" on ${platform} (user: ${userId})`);
 
     // 1. Generate vibe profile via Claude
     const vibeProfile = await generateVibeProfile(description.trim());
@@ -449,30 +508,70 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
 
     console.log(`[playlist] matched ${scored.length} tracks (best: ${scored[0].score.toFixed(2)})`);
 
-    // 3. Create Spotify playlist
-    let spotifyPlaylistId: string | null = null;
-    let spotifyUrl: string | null = null;
-    try {
-      const playlist = await createPlaylist(token, userId, vibeProfile.playlist_name, description);
-      spotifyPlaylistId = playlist.id;
-      spotifyUrl = playlist.url;
+    let playlistExternalId: string | null = null;
+    let playlistUrl: string | null = null;
 
-      await addTracksToPlaylist(
-        token,
-        playlist.id,
-        scored.map((s) => s.track.spotify_id)
-      );
-      console.log(`[playlist] created on Spotify: ${spotifyUrl}`);
-    } catch (spotifyErr: any) {
-      if (spotifyErr.response?.status === 403) {
-        res.status(403).json({
-          error: "scope_missing",
-          message: "Voce precisa fazer login novamente para criar playlists.",
-        });
-        return;
+    if (platform === "ytmusic" && ytTokenB64) {
+      // 3a. Create YouTube Music playlist
+      try {
+        const ytToken = JSON.parse(Buffer.from(ytTokenB64, "base64").toString("utf-8"));
+        const ytPlaylistId = await createYTPlaylist(ytToken, vibeProfile.playlist_name, description);
+        playlistExternalId = ytPlaylistId;
+        playlistUrl = `https://music.youtube.com/playlist?list=${ytPlaylistId}`;
+
+        // Find YouTube video IDs for each track — search by name if needed
+        const videoIds: string[] = [];
+        for (const s of scored) {
+          const id = s.track.spotify_id;
+          // Try to extract videoId from ytmusic_ prefix
+          if (id.startsWith("ytmusic_")) {
+            const parts = id.replace("ytmusic_", "").split("_");
+            if (parts[0] && parts[0].length >= 8) {
+              videoIds.push(parts[0]);
+              continue;
+            }
+          }
+          // Search on YouTube Music by track name + artist
+          try {
+            const results = await searchYTTracks(null, `${s.track.track_name} ${s.track.artist_name}`, 1);
+            if (results.length > 0 && results[0].videoId) {
+              videoIds.push(results[0].videoId);
+            }
+          } catch {
+            // skip track if search fails
+          }
+        }
+
+        if (videoIds.length > 0) {
+          await addToYTPlaylist(ytToken, ytPlaylistId, videoIds);
+        }
+        console.log(`[playlist] created on YouTube Music: ${playlistUrl}`);
+      } catch (ytErr: any) {
+        console.error("[playlist] YouTube Music API error:", ytErr.message);
       }
-      console.error("[playlist] Spotify API error:", spotifyErr.message);
-      // Continue without Spotify playlist — still save locally
+    } else if (platform === "spotify" && token) {
+      // 3b. Create Spotify playlist
+      try {
+        const playlist = await createPlaylist(token, userId, vibeProfile.playlist_name, description);
+        playlistExternalId = playlist.id;
+        playlistUrl = playlist.url;
+
+        await addTracksToPlaylist(
+          token,
+          playlist.id,
+          scored.map((s) => s.track.spotify_id).filter((id) => !id.startsWith("lastfm_") && !id.startsWith("ytmusic_"))
+        );
+        console.log(`[playlist] created on Spotify: ${playlistUrl}`);
+      } catch (spotifyErr: any) {
+        if (spotifyErr.response?.status === 403) {
+          res.status(403).json({
+            error: "scope_missing",
+            message: "Voce precisa fazer login novamente para criar playlists.",
+          });
+          return;
+        }
+        console.error("[playlist] Spotify API error:", spotifyErr.message);
+      }
     }
 
     // 4. Save to database
@@ -480,8 +579,8 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
       userId,
       description,
       vibeProfile,
-      spotifyPlaylistId,
-      spotifyUrl,
+      playlistExternalId,
+      playlistUrl,
       scored.map((s) => ({
         spotify_id: s.track.spotify_id,
         track_name: s.track.track_name,
@@ -495,7 +594,8 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
         id: saved.id,
         name: vibeProfile.playlist_name,
         description,
-        spotify_url: spotifyUrl,
+        spotify_url: playlistUrl,
+        platform,
         vibe_profile: vibeProfile,
         tracks: scored.map((s, i) => ({
           position: i + 1,
@@ -514,7 +614,8 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
 
 app.post("/api/playlist/:id/rate", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token) {
+  const userIdHeader = req.headers["x-user-id"] as string | undefined;
+  if (!token && !userIdHeader) {
     res.status(401).json({ error: "Missing access token" });
     return;
   }
@@ -543,13 +644,20 @@ app.post("/api/playlist/:id/rate", async (req, res) => {
 
 app.get("/api/playlist/history", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token) {
+  const userIdHeader = req.headers["x-user-id"] as string | undefined;
+
+  if (!token && !userIdHeader) {
     res.status(401).json({ error: "Missing access token" });
     return;
   }
 
   try {
-    const userId = await getSpotifyUserId(token);
+    let userId: string;
+    if (token) {
+      userId = await getSpotifyUserId(token);
+    } else {
+      userId = userIdHeader!;
+    }
     const playlists = await getPlaylistsByUser(userId);
     res.json(playlists);
   } catch (error: any) {
@@ -620,6 +728,67 @@ app.get("/api/lastfm/top-artists", async (req, res) => {
     res.json({ artists: enriched });
   } catch (err: any) {
     console.error("Last.fm top artists error:", err.message);
+    res.status(500).json({ error: "Failed to get top artists" });
+  }
+});
+
+app.get("/api/ytmusic/top-artists", async (req, res) => {
+  const ytTokenB64 = req.headers["x-ytmusic-token"] as string | undefined;
+  if (!ytTokenB64) {
+    res.status(401).json({ error: "Missing YouTube Music token" });
+    return;
+  }
+
+  try {
+    const ytToken = JSON.parse(Buffer.from(ytTokenB64, "base64").toString("utf-8"));
+    const topTracks = await getYTTopTracks(ytToken, 100);
+
+    // Extract artists from top tracks and rank by frequency
+    const artistCounts = new Map<string, { name: string; image: string; count: number }>();
+    for (const t of topTracks) {
+      const key = t.artist.toLowerCase();
+      const existing = artistCounts.get(key);
+      if (existing) {
+        existing.count++;
+      } else {
+        artistCounts.set(key, { name: t.artist, image: t.thumbnail || "", count: 1 });
+      }
+    }
+
+    const artists = [...artistCounts.values()]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+      .map((a) => ({
+        name: a.name,
+        image: a.image,
+        genres: [] as string[],
+      }));
+
+    // Fire-and-forget: enqueue YT Music liked songs for background analysis
+    (async () => {
+      try {
+        let totalEnqueued = 0;
+        for (const t of topTracks) {
+          if (!t.title || !t.artist) continue;
+          const trackId = `ytmusic_${(t.videoId || t.title).slice(0, 40)}_${t.artist.slice(0, 20)}`;
+          const existsById = await getTrackFeatures(trackId);
+          if (existsById) continue;
+          const existsByName = await trackExistsByName(t.title, t.artist);
+          if (existsByName) continue;
+          await addToQueue(trackId, t.title, t.artist);
+          totalEnqueued++;
+        }
+        if (totalEnqueued > 0) {
+          console.log(`[ytmusic] enqueued ${totalEnqueued} tracks for analysis`);
+        }
+      } catch (err) {
+        console.error("[ytmusic] failed to enqueue tracks:", err);
+      }
+    })();
+
+    res.json({ artists });
+  } catch (error: any) {
+    console.error("[ytmusic-top-artists] ERROR:", error.message);
     res.status(500).json({ error: "Failed to get top artists" });
   }
 });

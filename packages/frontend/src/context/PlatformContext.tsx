@@ -9,16 +9,19 @@ import {
 interface PlatformState {
   spotifyToken: string;
   lastfmUser: string;
+  ytmusicToken: string;
   userId: number | null;
 }
 
 interface PlatformContextType extends PlatformState {
   setSpotifyToken: (token: string) => void;
   setLastfmUser: (username: string) => void;
+  setYTMusicToken: (token: string) => void;
   setUserId: (id: number) => void;
   isLoggedIn: boolean;
   hasSpotify: boolean;
   hasLastfm: boolean;
+  hasYTMusic: boolean;
   hasBoth: boolean;
   logout: () => void;
   getHeaders: () => Record<string, string>;
@@ -33,6 +36,7 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
       sessionStorage.getItem("spotaste_token") ||
       "",
     lastfmUser: sessionStorage.getItem("spotaste_lastfm_user") || "",
+    ytmusicToken: sessionStorage.getItem("spotaste_ytmusic_token") || "",
     userId: sessionStorage.getItem("spotaste_user_id")
       ? Number(sessionStorage.getItem("spotaste_user_id"))
       : null,
@@ -49,6 +53,11 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, lastfmUser: username }));
   }, []);
 
+  const setYTMusicToken = useCallback((token: string) => {
+    sessionStorage.setItem("spotaste_ytmusic_token", token);
+    setState((s) => ({ ...s, ytmusicToken: token }));
+  }, []);
+
   const setUserId = useCallback((id: number) => {
     sessionStorage.setItem("spotaste_user_id", String(id));
     setState((s) => ({ ...s, userId: id }));
@@ -57,14 +66,16 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     sessionStorage.removeItem("spotaste_spotify_token");
     sessionStorage.removeItem("spotaste_lastfm_user");
+    sessionStorage.removeItem("spotaste_ytmusic_token");
     sessionStorage.removeItem("spotaste_user_id");
     sessionStorage.removeItem("spotaste_token");
-    setState({ spotifyToken: "", lastfmUser: "", userId: null });
+    setState({ spotifyToken: "", lastfmUser: "", ytmusicToken: "", userId: null });
   }, []);
 
-  const isLoggedIn = !!(state.spotifyToken || state.lastfmUser);
+  const isLoggedIn = !!(state.spotifyToken || state.lastfmUser || state.ytmusicToken);
   const hasSpotify = !!state.spotifyToken;
   const hasLastfm = !!state.lastfmUser;
+  const hasYTMusic = !!state.ytmusicToken;
   const hasBoth = hasSpotify && hasLastfm;
 
   const getHeaders = useCallback((): Record<string, string> => {
@@ -74,6 +85,9 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
     }
     if (state.lastfmUser) {
       headers["X-Lastfm-User"] = state.lastfmUser;
+    }
+    if (state.ytmusicToken) {
+      headers["X-YTMusic-Token"] = btoa(state.ytmusicToken);
     }
     if (state.userId) {
       headers["X-User-Id"] = String(state.userId);
@@ -87,10 +101,12 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
         ...state,
         setSpotifyToken,
         setLastfmUser,
+        setYTMusicToken,
         setUserId,
         isLoggedIn,
         hasSpotify,
         hasLastfm,
+        hasYTMusic,
         hasBoth,
         logout,
         getHeaders,
