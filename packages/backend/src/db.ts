@@ -44,6 +44,12 @@ export async function initDb(): Promise<void> {
     console.log("Migration 004 applied (lastfm)");
   }
 
+  const migration005Path = resolve(__dirname, "../../../db/migrate_005_ytmusic.sql");
+  if (existsSync(migration005Path)) {
+    await pool.query(readFileSync(migration005Path, "utf-8"));
+    console.log("[db] migration 005 applied");
+  }
+
   console.log("[db] schema initialized");
 }
 
@@ -256,6 +262,7 @@ export async function getAllTrackFeatures(
 export interface PlaylistRow {
   id: number;
   user_spotify_id: string;
+  user_id?: number;
   description: string;
   vibe_profile: any;
   spotify_playlist_id: string | null;
@@ -421,15 +428,18 @@ export interface User {
   id: number;
   lastfm_username: string | null;
   spotify_user_id: string | null;
+  ytmusic_channel_id?: string;
   primary_platform: string;
   created_at: string;
 }
 
 export async function findOrCreateUser(
-  platform: "lastfm" | "spotify",
+  platform: "lastfm" | "spotify" | "ytmusic",
   identifier: string
 ): Promise<User> {
-  const col = platform === "lastfm" ? "lastfm_username" : "spotify_user_id";
+  const col = platform === "lastfm" ? "lastfm_username"
+    : platform === "ytmusic" ? "ytmusic_channel_id"
+    : "spotify_user_id";
   const existing = await pool.query(
     `SELECT * FROM users WHERE ${col} = $1`,
     [identifier]
@@ -444,10 +454,12 @@ export async function findOrCreateUser(
 
 export async function linkPlatform(
   userId: number,
-  platform: "lastfm" | "spotify",
+  platform: "lastfm" | "spotify" | "ytmusic",
   identifier: string
 ): Promise<User> {
-  const col = platform === "lastfm" ? "lastfm_username" : "spotify_user_id";
+  const col = platform === "lastfm" ? "lastfm_username"
+    : platform === "ytmusic" ? "ytmusic_channel_id"
+    : "spotify_user_id";
   const result = await pool.query(
     `UPDATE users SET ${col} = $1 WHERE id = $2 RETURNING *`,
     [identifier, userId]
@@ -512,4 +524,59 @@ export async function cleanExpiredCache(): Promise<number> {
     `DELETE FROM lastfm_cache WHERE cached_at < NOW() - INTERVAL '7 days'`
   );
   return result.rowCount || 0;
+}
+
+// --- Track Mapping ---
+
+export async function findTrackMapping(opts: {
+  spotifyId?: string;
+  youtubeId?: string;
+  lastfmKey?: string;
+}): Promise<any | null> {
+  if (opts.spotifyId) {
+    const { rows } = await pool.query("SELECT * FROM track_mapping WHERE spotify_id = $1", [opts.spotifyId]);
+    if (rows.length > 0) return rows[0];
+  }
+  if (opts.youtubeId) {
+    const { rows } = await pool.query("SELECT * FROM track_mapping WHERE youtube_id = $1", [opts.youtubeId]);
+    if (rows.length > 0) return rows[0];
+  }
+  if (opts.lastfmKey) {
+    const { rows } = await pool.query("SELECT * FROM track_mapping WHERE lastfm_key = $1", [opts.lastfmKey]);
+    if (rows.length > 0) return rows[0];
+  }
+  return null;
+}
+
+export async function createTrackMapping(
+  spotifyId: string | null,
+  youtubeId: string | null,
+  lastfmKey: string | null,
+  trackName: string,
+  artistName: string,
+  confidence = 1.0
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO track_mapping (spotify_id, youtube_id, lastfm_key, track_name, artist_name, match_confidence)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT DO NOTHING`,
+    [spotifyId, youtubeId, lastfmKey, trackName, artistName, confidence]
+  );
+}
+
+export async function getTracksWithoutSpotifyId(limit = 50): Promise<TrackFeatures[]> {
+  const { rows } = await pool.query(
+    `SELECT * FROM track_features
+     WHERE (spotify_id LIKE 'lastfm_%' OR spotify_id LIKE 'ytmusic_%')
+     ORDER BY analyzed_at DESC LIMIT $1`,
+    [limit]
+  );
+  return rows;
+}
+
+export async function updateTrackSpotifyId(oldId: string, newSpotifyId: string): Promise<void> {
+  await pool.query(
+    "UPDATE track_features SET spotify_id = $1 WHERE spotify_id = $2",
+    [newSpotifyId, oldId]
+  );
 }

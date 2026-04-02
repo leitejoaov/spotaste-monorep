@@ -2,12 +2,15 @@ import {
   getPendingQueue,
   getTrackFeatures,
   getTracksWithoutMoods,
+  getTracksWithoutSpotifyId,
   updateQueueStatus,
+  updateTrackSpotifyId,
   saveTrackFeatures,
   resetStuckProcessing,
   cleanExpiredCache,
 } from "./db.js";
 import { analyzeWithEssentia } from "./essentia.js";
+import { searchTracks } from "./spotify.js";
 
 const INTERVAL_MS = 30_000;
 
@@ -56,6 +59,51 @@ async function processQueue(): Promise<void> {
     } catch (err) {
       console.error(`[worker] re-analysis failed: ${track.track_name}`, err);
     }
+  }
+}
+
+export async function backfillSpotifyIds(token: string, limit = 50): Promise<void> {
+  try {
+    const tracks = await getTracksWithoutSpotifyId(limit);
+    if (tracks.length === 0) {
+      console.log("[backfill] no tracks need Spotify ID backfill");
+      return;
+    }
+
+    console.log(`[backfill] attempting to match ${tracks.length} tracks with Spotify`);
+    let matched = 0;
+
+    for (const track of tracks) {
+      try {
+        // Search Spotify for this track
+        const query = `track:${track.track_name} artist:${track.artist_name}`;
+        const results = await searchTracks(token, query);
+
+        if (results.length > 0) {
+          // Check for name match (case-insensitive)
+          const match = results.find(
+            (r) => r.name.toLowerCase() === track.track_name.toLowerCase() &&
+                   r.artists.some((a: any) => a.name.toLowerCase() === track.artist_name.toLowerCase())
+          ) || results[0]; // fallback to first result if no exact match
+
+          await updateTrackSpotifyId(track.spotify_id, match.id);
+          matched++;
+        }
+
+        // Rate limit: wait 100ms between searches
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } catch (err: any) {
+        // Skip individual track errors (might be rate limited)
+        if (err.response?.status === 429) {
+          console.log("[backfill] rate limited, stopping");
+          break;
+        }
+      }
+    }
+
+    console.log(`[backfill] matched ${matched}/${tracks.length} tracks with Spotify IDs`);
+  } catch (err: any) {
+    console.error("[backfill] error:", err.message);
   }
 }
 

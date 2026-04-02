@@ -1,13 +1,46 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, PlayCircle, Loader2 } from "lucide-react";
 import { usePlatform } from "../context/PlatformContext";
 import LastfmInput from "../components/LastfmInput";
+import DeviceCodeModal from "../components/DeviceCodeModal";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
 export default function Settings() {
   const navigate = useNavigate();
-  const { hasSpotify, hasLastfm, setLastfmUser, setUserId } = usePlatform();
+  const { hasSpotify, hasLastfm, hasYTMusic, setLastfmUser, setYTMusicToken, setUserId } = usePlatform();
+  const [ytSetup, setYtSetup] = useState<{ url: string; code: string; deviceCode: string } | null>(null);
+  const [ytLoading, setYtLoading] = useState(false);
+
+  const handleYTMusicSetup = async () => {
+    setYtLoading(true);
+    try {
+      const res = await fetch("/auth/ytmusic/setup");
+      if (!res.ok) throw new Error("Falha ao iniciar setup");
+      const data = await res.json();
+      setYtSetup({
+        url: data.verification_url,
+        code: data.user_code,
+        deviceCode: data.device_code,
+      });
+    } catch {
+      // silently fail
+    } finally {
+      setYtLoading(false);
+    }
+  };
+
+  const handleYTMusicSuccess = (data: { token: object; channelId: string; userName: string; userId: number }) => {
+    setYTMusicToken(JSON.stringify(data.token));
+    setUserId(data.userId);
+    setYtSetup(null);
+  };
+
+  const handleYTMusicDisconnect = () => {
+    sessionStorage.removeItem("spotaste_ytmusic_token");
+    setYTMusicToken("");
+  };
 
   const handleLastfmSuccess = (userId: number, username: string) => {
     setLastfmUser(username);
@@ -92,14 +125,62 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Note when Spotify not connected */}
-          {!hasSpotify && (
+          {/* YouTube Music Card */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+            <div className="flex items-center gap-4">
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${hasYTMusic ? "bg-red-500/20" : "bg-white/5"}`}>
+                <PlayCircle
+                  className={`w-6 h-6 ${hasYTMusic ? "text-red-500" : "text-white/30"}`}
+                />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-display font-bold">YouTube Music</h3>
+                <p className="text-xs text-spotify-text">
+                  {hasYTMusic ? "Conectado" : "Nao conectado"}
+                </p>
+              </div>
+              {hasYTMusic ? (
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 size={22} className="text-red-500" />
+                  <button
+                    onClick={handleYTMusicDisconnect}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-red-400 text-sm font-semibold rounded-lg transition-colors border border-white/10"
+                  >
+                    Desconectar
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleYTMusicSetup}
+                  disabled={ytLoading}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors"
+                >
+                  {ytLoading && <Loader2 size={14} className="animate-spin" />}
+                  Conectar
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Note when neither Spotify nor YTMusic connected */}
+          {!hasSpotify && !hasYTMusic && (
             <p className="text-xs text-white/30 text-center">
-              Sem Spotify, criacao de playlists nao esta disponivel.
+              Sem Spotify ou YouTube Music, criacao de playlists nao esta disponivel.
             </p>
           )}
         </section>
       </div>
+
+      {/* YouTube Music Device Code Modal */}
+      {ytSetup && (
+        <DeviceCodeModal
+          url={ytSetup.url}
+          code={ytSetup.code}
+          deviceCode={ytSetup.deviceCode}
+          onSuccess={handleYTMusicSuccess}
+          onCancel={() => setYtSetup(null)}
+        />
+      )}
     </div>
   );
 }

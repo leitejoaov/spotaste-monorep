@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { Music, Headphones, Mic2 } from "lucide-react";
+import { Music, Headphones, Mic2, PlayCircle, Loader2 } from "lucide-react";
 import SpotifyButton from "../components/SpotifyButton";
 import LastfmInput from "../components/LastfmInput";
+import DeviceCodeModal from "../components/DeviceCodeModal";
 import { usePlatform } from "../context/PlatformContext";
 
 const floatingIcons = [
@@ -15,11 +17,38 @@ const floatingIcons = [
 
 export default function Login() {
   const navigate = useNavigate();
-  const { setLastfmUser, setUserId } = usePlatform();
+  const { setLastfmUser, setYTMusicToken, setUserId } = usePlatform();
+  const [ytSetup, setYtSetup] = useState<{ url: string; code: string; deviceCode: string } | null>(null);
+  const [ytLoading, setYtLoading] = useState(false);
 
   const handleLastfmSuccess = (userId: number, username: string) => {
     setLastfmUser(username);
     setUserId(userId);
+    navigate("/hub");
+  };
+
+  const handleYTMusicSetup = async () => {
+    setYtLoading(true);
+    try {
+      const res = await fetch("/auth/ytmusic/setup");
+      if (!res.ok) throw new Error("Falha ao iniciar setup");
+      const data = await res.json();
+      setYtSetup({
+        url: data.verification_url,
+        code: data.user_code,
+        deviceCode: data.device_code,
+      });
+    } catch {
+      // silently fail
+    } finally {
+      setYtLoading(false);
+    }
+  };
+
+  const handleYTMusicSuccess = (data: { token: object; channelId: string; userName: string; userId: number }) => {
+    setYTMusicToken(JSON.stringify(data.token));
+    setUserId(data.userId);
+    setYtSetup(null);
     navigate("/hub");
   };
 
@@ -129,6 +158,43 @@ export default function Login() {
           <SpotifyButton />
         </motion.div>
 
+        {/* Divider */}
+        <div className="flex items-center gap-4 w-full">
+          <div className="flex-1 h-px bg-white/10" />
+          <span className="text-xs text-white/30 uppercase tracking-widest">ou</span>
+          <div className="flex-1 h-px bg-white/10" />
+        </div>
+
+        {/* YouTube Music Login */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6, duration: 0.5 }}
+          className="w-full space-y-3"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-8 h-8 rounded-lg bg-red-500/20 flex items-center justify-center">
+              <PlayCircle className="w-4 h-4 text-red-500" />
+            </div>
+            <div>
+              <h3 className="font-display font-semibold text-sm text-white">YouTube Music</h3>
+              <p className="text-xs text-spotify-text">Conecte sua conta do YouTube Music</p>
+            </div>
+          </div>
+          <button
+            onClick={handleYTMusicSetup}
+            disabled={ytLoading}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+          >
+            {ytLoading ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <PlayCircle size={18} />
+            )}
+            Entrar com YouTube Music
+          </button>
+        </motion.div>
+
         <p className="text-[11px] text-white/30 text-center">
           Conectamos com suas plataformas apenas para ler seus artistas favoritos.
           <br />
@@ -140,6 +206,17 @@ export default function Login() {
           </button>
         </p>
       </motion.div>
+
+      {/* YouTube Music Device Code Modal */}
+      {ytSetup && (
+        <DeviceCodeModal
+          url={ytSetup.url}
+          code={ytSetup.code}
+          deviceCode={ytSetup.deviceCode}
+          onSuccess={handleYTMusicSuccess}
+          onCancel={() => setYtSetup(null)}
+        />
+      )}
     </div>
   );
 }

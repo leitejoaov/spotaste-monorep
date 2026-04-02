@@ -84,15 +84,20 @@ interface ArtistInput {
   genres: string[];
 }
 
-export async function getMusicTasteAnalysis(artists: ArtistInput[]): Promise<JudgeMessage[]> {
+export async function getMusicTasteAnalysis(artists: ArtistInput[], platform?: string): Promise<JudgeMessage[]> {
   const artistSummary = artists
     .map((a) => `${a.name} (genres: ${a.genres.join(", ")})`)
     .join("\n");
+
+  const platformName = platform === "ytmusic" ? "YouTube Music" : platform === "lastfm" ? "Last.fm" : "Spotify";
+  const platformCtx = `A pessoa usa ${platformName} como plataforma de musica. Mencione a plataforma correta quando fizer referencia (nunca diga "Spotify" se a pessoa usa outra plataforma).`;
 
   const message = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 2000,
     system: `Voce e o critico musical mais sem filtro da internet brasileira. Voce faz roasts de gosto musical no estilo zoeiro gen-z brasileiro.
+
+${platformCtx}
 
 REGRAS:
 - Portugues brasileiro informal, estilo mensagem de whatsapp/twitter
@@ -119,7 +124,8 @@ ${FORMAT_INSTRUCTIONS}`,
 export async function getEnrichedMusicTasteAnalysis(
   artists: { name: string; genres: string[]; playcount?: number }[],
   totalScrobbles?: number,
-  memberSince?: number
+  memberSince?: number,
+  platform?: string
 ): Promise<JudgeMessage[]> {
   const artistList = artists
     .map(
@@ -139,10 +145,16 @@ export async function getEnrichedMusicTasteAnalysis(
     .filter(Boolean)
     .join("\n");
 
+  const platformName = platform === "ytmusic" ? "YouTube Music" : platform === "lastfm" ? "Last.fm" : "Spotify";
+  const platformCtx = `A pessoa usa ${platformName} como plataforma de musica. Mencione a plataforma correta quando fizer referencia (nunca diga "Spotify" se a pessoa usa outra plataforma).`;
+
   const msg = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 2000,
     system: `Voce e um critico musical gen-z brasileiro BRUTALMENTE sincero e engraçado.
+
+${platformCtx}
+
 Voce recebe os artistas mais ouvidos do usuario. O FOCO do roast e o GOSTO MUSICAL em si — os artistas, generos, combinacoes absurdas, contradicoes.
 Zoe as ESCOLHAS musicais, nao a quantidade de plays. Pode mencionar plays 1-2 vezes no maximo e so se for muito absurdo, mas o foco e sempre zoar O QUE a pessoa escuta, nao QUANTO.
 Compare artistas entre si, zoe generos, aponte contradicoes tipo "escuta X e Y ao mesmo tempo?? escolhe um lado".
