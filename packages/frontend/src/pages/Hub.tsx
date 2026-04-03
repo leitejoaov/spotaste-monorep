@@ -31,15 +31,22 @@ export default function Hub() {
       navigate("/");
       return;
     }
-    const raw = searchParams.get("artists");
-    if (raw) {
-      try {
-        setArtists(JSON.parse(decodeURIComponent(raw)));
-      } catch {
-        // Last.fm-only users may not have artists param -- that's ok
-      }
+
+    // Fetch Spotify top artists via API
+    if (hasSpotify) {
+      const API_URL = import.meta.env.VITE_API_URL || "";
+      fetch(`${API_URL}/api/spotify/top-artists`, {
+        headers: { ...getHeaders() },
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.artists && Array.isArray(data.artists) && data.artists.length > 0) {
+            setArtists(data.artists);
+          }
+        })
+        .catch(() => {});
     }
-  }, [searchParams, navigate, isLoggedIn]);
+  }, [navigate, isLoggedIn, hasSpotify, getHeaders]);
 
   // Fetch Last.fm top artists when user has Last.fm
   useEffect(() => {
@@ -53,14 +60,14 @@ export default function Hub() {
       .then((data) => {
         if (data.artists && Array.isArray(data.artists)) {
           setLastfmArtists(data.artists);
-          // If no Spotify artists from URL, use Last.fm ones as main artists
-          if (!searchParams.get("artists")) {
+          // If no Spotify artists, use Last.fm ones as main artists
+          if (artists.length === 0) {
             setArtists(data.artists);
           }
         }
       })
       .catch(() => {});
-  }, [lastfmUser, searchParams, getHeaders]);
+  }, [lastfmUser, getHeaders]);
 
   // Fetch YouTube Music top artists when user has YT Music
   useEffect(() => {
@@ -122,7 +129,7 @@ export default function Hub() {
 
   if (!isLoggedIn) return null;
 
-  const artistsParam = searchParams.get("artists") || "";
+  // Artists for judge — encode current artists state for the judge page
 
   const cards = [
     {
@@ -142,7 +149,7 @@ export default function Hub() {
           }
         }
         const payload = encodeURIComponent(JSON.stringify(allArtists));
-        navigate(`/judge?artists=${payload}&hubData=${encodeURIComponent(artistsParam)}`);
+        navigate(`/judge?artists=${payload}`);
       },
     },
     {
@@ -151,7 +158,7 @@ export default function Hub() {
       icon: BarChart3,
       color: "from-spotify-green to-emerald-400",
       shadow: "shadow-spotify-green/20",
-      onClick: () => navigate(`/taste-analysis?hubData=${encodeURIComponent(artistsParam)}`),
+      onClick: () => navigate("/taste-analysis"),
     },
     {
       title: "Audio Analysis",
@@ -159,7 +166,7 @@ export default function Hub() {
       icon: Headphones,
       color: "from-purple-500 to-violet-400",
       shadow: "shadow-purple-500/20",
-      onClick: () => navigate(`/audio-features?hubData=${encodeURIComponent(artistsParam)}`),
+      onClick: () => navigate("/audio-features"),
     },
     {
       title: "Banco de Musicas",
@@ -167,7 +174,7 @@ export default function Hub() {
       icon: Library,
       color: "from-cyan-500 to-blue-400",
       shadow: "shadow-cyan-500/20",
-      onClick: () => navigate(`/library?hubData=${encodeURIComponent(artistsParam)}`),
+      onClick: () => navigate("/library"),
     },
     {
       title: "Text to Playlist",
@@ -175,7 +182,7 @@ export default function Hub() {
       icon: Sparkles,
       color: "from-amber-500 to-yellow-400",
       shadow: "shadow-amber-500/20",
-      onClick: () => navigate(`/text-to-playlist?hubData=${encodeURIComponent(artistsParam)}`),
+      onClick: () => navigate("/text-to-playlist"),
     },
     {
       title: "Playlists",
@@ -183,7 +190,7 @@ export default function Hub() {
       icon: ListMusic,
       color: "from-rose-500 to-pink-400",
       shadow: "shadow-rose-500/20",
-      onClick: () => navigate(`/playlist-history?hubData=${encodeURIComponent(artistsParam)}`),
+      onClick: () => navigate("/playlist-history"),
     },
   ];
 
@@ -251,7 +258,7 @@ export default function Hub() {
             )}
             {!hasYTMusic && (
               <button
-                onClick={() => navigate("/")}
+                onClick={() => navigate("/settings")}
                 className="flex items-center gap-2 px-3.5 py-2 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-red-500/30 transition-all"
               >
                 <PlayCircle className="w-4 h-4 text-red-500 shrink-0" />

@@ -9,7 +9,6 @@ export default function AuthCallback() {
 
   useEffect(() => {
     const token = searchParams.get("t");
-    const artists = searchParams.get("artists");
     const userId = searchParams.get("userId");
 
     if (token) {
@@ -17,7 +16,7 @@ export default function AuthCallback() {
       if (userId) {
         setUserId(Number(userId));
       }
-      navigate(`/hub?artists=${artists || ""}`, { replace: true });
+      navigate("/hub", { replace: true });
     } else {
       navigate("/", { replace: true });
     }

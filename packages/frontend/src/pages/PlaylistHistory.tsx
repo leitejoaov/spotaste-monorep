@@ -150,7 +150,7 @@ export default function PlaylistHistory() {
       <header className="sticky top-0 z-20 bg-spotify-dark/80 backdrop-blur-lg border-b border-white/5">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <button
-            onClick={() => navigate(`/hub?artists=${searchParams.get("hubData") || ""}`)}
+            onClick={() => navigate("/hub")}
             className="flex items-center gap-2 text-spotify-text hover:text-white transition-colors"
           >
             <ArrowLeft size={20} />
@@ -207,7 +207,7 @@ export default function PlaylistHistory() {
             <p className="text-lg">{isPublicTab ? "Nenhuma playlist publica ainda" : "Nenhuma playlist criada ainda"}</p>
             <p className="text-sm mt-1">Use o Text to Playlist pra gerar sua primeira!</p>
             <button
-              onClick={() => navigate(`/text-to-playlist?hubData=${searchParams.get("hubData") || ""}`)}
+              onClick={() => navigate("/text-to-playlist")}
               className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/20 text-amber-400 text-sm font-medium hover:bg-amber-500/30 transition-colors"
             >
               <Sparkles size={14} />

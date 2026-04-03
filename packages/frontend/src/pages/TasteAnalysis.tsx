@@ -77,8 +77,6 @@ export default function TasteAnalysis() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { getHeaders, isLoggedIn } = usePlatform();
-  const hubData = searchParams.get("hubData") || "";
-
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -150,7 +148,7 @@ export default function TasteAnalysis() {
       <div className="min-h-screen bg-gradient-to-b from-spotify-dark via-[#0d1117] to-spotify-dark flex flex-col items-center justify-center px-4 gap-4">
         <p className="text-red-400 text-lg">{error}</p>
         <button
-          onClick={() => navigate(`/hub?artists=${hubData}`)}
+          onClick={() => navigate("/hub")}
           className="px-6 py-3 rounded-full border border-spotify-green/30 text-spotify-green hover:bg-spotify-green/10 transition-all text-sm font-medium"
         >
           Voltar ao Hub
@@ -166,7 +164,7 @@ export default function TasteAnalysis() {
       <header className="sticky top-0 z-20 bg-spotify-dark/80 backdrop-blur-lg border-b border-white/5">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <button
-            onClick={() => navigate(`/hub?artists=${hubData}`)}
+            onClick={() => navigate("/hub")}
             className="flex items-center gap-2 text-spotify-text hover:text-white transition-colors"
           >
             <ArrowLeft size={20} />
@@ -386,7 +384,7 @@ export default function TasteAnalysis() {
           className="text-center pb-8"
         >
           <button
-            onClick={() => navigate(`/hub?artists=${hubData}`)}
+            onClick={() => navigate("/hub")}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-spotify-green/30 text-spotify-green hover:bg-spotify-green/10 transition-all text-sm font-medium"
           >
             Voltar ao Hub

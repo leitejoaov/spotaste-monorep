@@ -8,10 +8,10 @@ import { authRouter } from "./routes/auth.js";
 import lastfmAuthRouter from "./routes/auth-lastfm.js";
 import ytmusicAuthRouter from "./routes/auth-ytmusic.js";
 import settingsRouter from "./routes/settings.js";
-import { getTopTracks, getSpotifyUserId, getTrackDetails, searchTracks, createPlaylist, addTracksToPlaylist, searchArtist, getArtistTopTracks } from "./spotify.js";
+import { getTopTracks, getTopArtists, getSpotifyUserId, getTrackDetails, searchTracks, createPlaylist, addTracksToPlaylist, searchArtist, getArtistTopTracks } from "./spotify.js";
 import { getMusicTasteAnalysis, getEnrichedMusicTasteAnalysis } from "./judge.js";
 import { getTopArtists as lfmGetTopArtists, validateUser as lfmValidateUser, getTopTracks as lfmGetTopTracks, getTrackInfo as lfmGetTrackInfo, searchTrack as lfmSearchTrack, getArtistInfo as lfmGetArtistInfo, getArtistTopTracks as lfmGetArtistTopTracks, getSimilarArtists as lfmGetSimilarArtists, resolveTrackImage, resolveArtistImage } from "./lastfm.js";
-import { analyzeTaste, generateVibeProfile, detectAndExtractArtists, analyzeLyrics } from "./claude.js";
+import { analyzeTaste, generateVibeProfile, detectAndExtractArtists, analyzeLyrics, rerankPlaylistCandidates } from "./claude.js";
 import { fetchLyrics } from "./lyrics.js";
 import { getCachedAnalysis, setCachedAnalysis } from "./cache.js";
 import { analyzeWithEssentia } from "./essentia.js";
@@ -70,7 +70,7 @@ app.post("/api/judge", claudeLimiter, async (req, res) => {
   const userId_header = req.headers["x-user-id"] as string | undefined;
   const { artists } = req.body;
   const platform = ytmusicToken ? "ytmusic" : lastfmUser ? "lastfm" : "spotify";
-  if (!artists || !Array.isArray(artists) || artists.length > 50) {
+  if (!artists || !Array.isArray(artists) || artists.length === 0 || artists.length > 50) {
     res.status(400).json({ error: "Missing or invalid artists data" });
     return;
   }
@@ -79,10 +79,12 @@ app.post("/api/judge", claudeLimiter, async (req, res) => {
     // Determine cache user ID
     let cacheUserId: string | null = null;
     if (token) {
-      cacheUserId = await getSpotifyUserId(token);
-    } else if (lastfmUser) {
+      try { cacheUserId = await getSpotifyUserId(token); } catch { /* expired token */ }
+    }
+    if (!cacheUserId && lastfmUser) {
       cacheUserId = `lastfm_${lastfmUser}`;
-    } else if (userId_header) {
+    }
+    if (!cacheUserId && userId_header) {
       cacheUserId = userId_header;
     }
 
@@ -590,22 +592,53 @@ app.post("/api/playlist/generate", claudeLimiter, async (req, res) => {
 
       console.log(`[playlist] collected ${artistTracks.length} tracks from ${artistDetection.artists.length} artists`);
     } else {
-      // VIBE MODE: original flow — generate vibe profile and match from database
+      // VIBE MODE: generate vibe profile → numeric match → Claude rerank
       vibeProfile = await generateVibeProfile(description.trim());
       playlistName = vibeProfile.playlist_name;
-      console.log(`[playlist] vibe profile: ${playlistName}`);
+      console.log(`[playlist] vibe profile: ${playlistName} (tags: ${vibeProfile.theme_tags?.join(", ") || "none"})`);
 
+      // Step 1: Numeric matching — get top 50 candidates
       const { tracks: allTracks } = await getAllTrackFeatures(undefined, 1, 5000);
-      scored = matchTracks(vibeProfile, allTracks);
+      const candidates = matchTracks(vibeProfile, allTracks, 50);
 
-      if (scored.length < 5) {
+      if (candidates.length < 5) {
         res.status(422).json({
           error: "Poucas musicas no banco para essa vibe. Tente novamente quando mais musicas forem analisadas.",
         });
         return;
       }
 
-      console.log(`[playlist] matched ${scored.length} tracks (best: ${scored[0].score.toFixed(2)})`);
+      console.log(`[playlist] ${candidates.length} candidates (best: ${candidates[0].score.toFixed(2)})`);
+
+      // Step 2: Claude rerank — semantic selection from candidates
+      const rerankInput = candidates.map((c) => ({
+        spotify_id: c.track.spotify_id,
+        track_name: c.track.track_name,
+        artist_name: c.track.artist_name,
+        energy: c.track.energy,
+        danceability: c.track.danceability,
+        mood_happy: c.track.mood_happy,
+        mood_sad: c.track.mood_sad,
+        mood_relaxed: c.track.mood_relaxed,
+        mood_aggressive: c.track.mood_aggressive,
+        mood_party: c.track.mood_party,
+        mood_acoustic: c.track.mood_acoustic,
+        voice_instrumental: c.track.voice_instrumental,
+        bpm: c.track.bpm,
+        lyrics_tags: c.track.lyrics_tags || [],
+        lyrics_language: c.track.lyrics_language,
+        score: c.score,
+      }));
+
+      const reranked = await rerankPlaylistCandidates(description.trim(), vibeProfile, rerankInput, 20);
+      console.log(`[playlist] reranked: ${reranked.length} tracks selected by Claude`);
+
+      // Map reranked results back to scored format
+      const trackMap = new Map(candidates.map((c) => [c.track.spotify_id, c.track]));
+      scored = reranked.map((r) => ({
+        track: trackMap.get(r.spotify_id)!,
+        score: r.score,
+      })).filter((s) => s.track);
     }
 
     let playlistExternalId: string | null = null;
@@ -827,6 +860,28 @@ app.get("/api/playlist/:id", async (req, res) => {
   } catch (error: any) {
     console.error("[playlist-detail] ERROR:", error);
     res.status(500).json({ error: "Falha ao buscar playlist" });
+  }
+});
+
+app.get("/api/spotify/top-artists", apiLimiter, async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (!token) {
+    res.status(401).json({ error: "Missing Spotify token" });
+    return;
+  }
+
+  try {
+    const artists = await getTopArtists(token);
+    res.json({
+      artists: artists.map((a) => ({
+        name: a.name,
+        image: a.images[0]?.url ?? "",
+        genres: a.genres.slice(0, 3),
+      })),
+    });
+  } catch (error: any) {
+    console.error("[spotify-top-artists] ERROR:", error.message);
+    res.status(500).json({ error: "Failed to fetch top artists" });
   }
 });
 
