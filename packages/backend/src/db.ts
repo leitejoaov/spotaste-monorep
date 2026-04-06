@@ -10,7 +10,7 @@ const DATABASE_URL =
   process.env.DATABASE_URL ||
   "postgresql://spotaste:spotaste@localhost:5432/spotaste";
 
-const pool = new pg.Pool({ connectionString: DATABASE_URL });
+export const pool = new pg.Pool({ connectionString: DATABASE_URL });
 
 export async function initDb(): Promise<void> {
   const schema = readFileSync(
@@ -50,6 +50,30 @@ export async function initDb(): Promise<void> {
     console.log("[db] migration 005 applied");
   }
 
+  const migration006Path = resolve(__dirname, "../../../db/migrate_006_playlist_platform.sql");
+  if (existsSync(migration006Path)) {
+    await pool.query(readFileSync(migration006Path, "utf-8"));
+    console.log("[db] migration 006 applied");
+  }
+
+  const migration007Path = resolve(__dirname, "../../../db/migrate_007_playlist_public.sql");
+  if (existsSync(migration007Path)) {
+    await pool.query(readFileSync(migration007Path, "utf-8"));
+    console.log("[db] migration 007 applied");
+  }
+
+  const migration008Path = resolve(__dirname, "../../../db/migrate_008_fix_platform.sql");
+  if (existsSync(migration008Path)) {
+    await pool.query(readFileSync(migration008Path, "utf-8"));
+    console.log("[db] migration 008 applied");
+  }
+
+  const migration009Path = resolve(__dirname, "../../../db/migrate_009_lyrics.sql");
+  if (existsSync(migration009Path)) {
+    await pool.query(readFileSync(migration009Path, "utf-8"));
+    console.log("[db] migration 009 applied");
+  }
+
   console.log("[db] schema initialized");
 }
 
@@ -70,6 +94,8 @@ export interface TrackFeatures {
   mood_party: number | null;
   voice_instrumental: number | null;
   mood_acoustic: number | null;
+  lyrics_tags: string[];
+  lyrics_language: string | null;
   analyzed_at: string;
 }
 
@@ -135,6 +161,28 @@ export async function saveTrackFeatures(
       features.mood_acoustic ?? null,
     ]
   );
+}
+
+export async function saveLyricsTags(
+  spotifyId: string,
+  tags: string[],
+  language: string | null
+): Promise<void> {
+  await pool.query(
+    `UPDATE track_features SET lyrics_tags = $1, lyrics_language = $2 WHERE spotify_id = $3`,
+    [tags, language, spotifyId]
+  );
+}
+
+export async function getTracksWithoutLyrics(limit = 5): Promise<TrackFeatures[]> {
+  const { rows } = await pool.query(
+    `SELECT * FROM track_features
+     WHERE mood_happy IS NOT NULL
+       AND (lyrics_tags IS NULL OR lyrics_tags = '{}')
+     ORDER BY analyzed_at DESC LIMIT $1`,
+    [limit]
+  );
+  return rows;
 }
 
 export interface QueueItem {
@@ -291,17 +339,19 @@ export async function savePlaylist(
   vibeProfile: any,
   spotifyPlaylistId: string | null,
   spotifyUrl: string | null,
-  tracks: { spotify_id: string; track_name: string; artist_name: string; score: number }[]
+  tracks: { spotify_id: string; track_name: string; artist_name: string; score: number }[],
+  platform: string = "spotify",
+  isPublic: boolean = true
 ): Promise<PlaylistRow> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
     const { rows } = await client.query(
-      `INSERT INTO playlists (user_spotify_id, description, vibe_profile, spotify_playlist_id, spotify_url, track_count)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO playlists (user_spotify_id, description, vibe_profile, spotify_playlist_id, spotify_url, track_count, platform, is_public)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [userSpotifyId, description, JSON.stringify(vibeProfile), spotifyPlaylistId, spotifyUrl, tracks.length]
+      [userSpotifyId, description, vibeProfile ? JSON.stringify(vibeProfile) : null, spotifyPlaylistId, spotifyUrl, tracks.length, platform, isPublic]
     );
     const playlist = rows[0] as PlaylistRow;
 
@@ -328,6 +378,14 @@ export async function getPlaylistsByUser(userSpotifyId: string): Promise<Playlis
   const { rows } = await pool.query(
     "SELECT * FROM playlists WHERE user_spotify_id = $1 ORDER BY created_at DESC",
     [userSpotifyId]
+  );
+  return rows;
+}
+
+export async function getPublicPlaylists(limit = 50, offset = 0): Promise<PlaylistRow[]> {
+  const { rows } = await pool.query(
+    "SELECT * FROM playlists WHERE is_public = true ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+    [limit, offset]
   );
   return rows;
 }

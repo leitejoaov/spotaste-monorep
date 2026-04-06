@@ -23,22 +23,30 @@ export default function Hub() {
   const accessToken = getAccessToken();
   const [lastfmArtists, setLastfmArtists] = useState<ArtistData[]>([]);
   const [ytmusicArtists, setYtmusicArtists] = useState<ArtistData[]>([]);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [recommendedArtists, setRecommendedArtists] = useState<(ArtistData & { from?: string[] })[]>([]);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ recommended: false });
 
   useEffect(() => {
     if (!isLoggedIn) {
       navigate("/");
       return;
     }
-    const raw = searchParams.get("artists");
-    if (raw) {
-      try {
-        setArtists(JSON.parse(decodeURIComponent(raw)));
-      } catch {
-        // Last.fm-only users may not have artists param -- that's ok
-      }
+
+    // Fetch Spotify top artists via API
+    if (hasSpotify) {
+      const API_URL = import.meta.env.VITE_API_URL || "";
+      fetch(`${API_URL}/api/spotify/top-artists`, {
+        headers: { ...getHeaders() },
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.artists && Array.isArray(data.artists) && data.artists.length > 0) {
+            setArtists(data.artists);
+          }
+        })
+        .catch(() => {});
     }
-  }, [searchParams, navigate, isLoggedIn]);
+  }, [navigate, isLoggedIn, hasSpotify, getHeaders]);
 
   // Fetch Last.fm top artists when user has Last.fm
   useEffect(() => {
@@ -52,14 +60,14 @@ export default function Hub() {
       .then((data) => {
         if (data.artists && Array.isArray(data.artists)) {
           setLastfmArtists(data.artists);
-          // If no Spotify artists from URL, use Last.fm ones as main artists
-          if (!searchParams.get("artists")) {
+          // If no Spotify artists, use Last.fm ones as main artists
+          if (artists.length === 0) {
             setArtists(data.artists);
           }
         }
       })
       .catch(() => {});
-  }, [lastfmUser, searchParams, getHeaders]);
+  }, [lastfmUser, getHeaders]);
 
   // Fetch YouTube Music top artists when user has YT Music
   useEffect(() => {
@@ -82,9 +90,46 @@ export default function Hub() {
       .catch(() => {});
   }, [hasYTMusic, searchParams, getHeaders, lastfmUser]);
 
+  // Fetch recommended artists based on all known artists
+  useEffect(() => {
+    if (artists.length === 0 && lastfmArtists.length === 0 && ytmusicArtists.length === 0) return;
+
+    const allNames = [
+      ...artists.slice(0, 5),
+      ...lastfmArtists.slice(0, 3),
+      ...ytmusicArtists.slice(0, 3),
+    ].map((a) => a.name);
+
+    // Dedup
+    const unique = [...new Set(allNames.map((n) => n.toLowerCase()))].map(
+      (lower) => allNames.find((n) => n.toLowerCase() === lower)!
+    ).slice(0, 8);
+
+    if (unique.length === 0) return;
+
+    const API_URL = import.meta.env.VITE_API_URL || "";
+    fetch(`${API_URL}/api/recommended-artists?artists=${encodeURIComponent(unique.join(","))}`, {
+      headers: { ...getHeaders() },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.artists && Array.isArray(data.artists)) {
+          setRecommendedArtists(
+            data.artists.map((a: any) => ({
+              name: a.name,
+              image: a.image || "",
+              genres: [],
+              from: a.from,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  }, [artists, lastfmArtists, ytmusicArtists, getHeaders]);
+
   if (!isLoggedIn) return null;
 
-  const artistsParam = searchParams.get("artists") || "";
+  // Artists for judge — encode current artists state for the judge page
 
   const cards = [
     {
@@ -104,7 +149,7 @@ export default function Hub() {
           }
         }
         const payload = encodeURIComponent(JSON.stringify(allArtists));
-        navigate(`/judge?artists=${payload}&hubData=${encodeURIComponent(artistsParam)}`);
+        navigate(`/judge?artists=${payload}`);
       },
     },
     {
@@ -113,7 +158,7 @@ export default function Hub() {
       icon: BarChart3,
       color: "from-spotify-green to-emerald-400",
       shadow: "shadow-spotify-green/20",
-      onClick: () => navigate(`/taste-analysis?hubData=${encodeURIComponent(artistsParam)}`),
+      onClick: () => navigate("/taste-analysis"),
     },
     {
       title: "Audio Analysis",
@@ -121,7 +166,7 @@ export default function Hub() {
       icon: Headphones,
       color: "from-purple-500 to-violet-400",
       shadow: "shadow-purple-500/20",
-      onClick: () => navigate(`/audio-features?hubData=${encodeURIComponent(artistsParam)}`),
+      onClick: () => navigate("/audio-features"),
     },
     {
       title: "Banco de Musicas",
@@ -129,7 +174,7 @@ export default function Hub() {
       icon: Library,
       color: "from-cyan-500 to-blue-400",
       shadow: "shadow-cyan-500/20",
-      onClick: () => navigate(`/library?hubData=${encodeURIComponent(artistsParam)}`),
+      onClick: () => navigate("/library"),
     },
     {
       title: "Text to Playlist",
@@ -137,15 +182,15 @@ export default function Hub() {
       icon: Sparkles,
       color: "from-amber-500 to-yellow-400",
       shadow: "shadow-amber-500/20",
-      onClick: () => navigate(`/text-to-playlist?hubData=${encodeURIComponent(artistsParam)}`),
+      onClick: () => navigate("/text-to-playlist"),
     },
     {
-      title: "Minhas Playlists",
-      description: "Veja e avalie as playlists criadas pela IA",
+      title: "Playlists",
+      description: "Explore playlists criadas pela comunidade e as suas",
       icon: ListMusic,
       color: "from-rose-500 to-pink-400",
       shadow: "shadow-rose-500/20",
-      onClick: () => navigate(`/playlist-history?hubData=${encodeURIComponent(artistsParam)}`),
+      onClick: () => navigate("/playlist-history"),
     },
   ];
 
@@ -159,7 +204,7 @@ export default function Hub() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-spotify-dark via-[#0d1117] to-spotify-dark text-white">
       <header className="bg-spotify-dark/80 backdrop-blur-lg border-b border-white/5">
-        <div className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 py-6 flex items-center justify-between">
           <div className="w-20" />
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-spotify-green/20 flex items-center justify-center">
@@ -179,7 +224,8 @@ export default function Hub() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-8 space-y-10">
+      <main className="max-w-7xl mx-auto px-4 py-8 flex gap-8">
+        <div className="flex-1 min-w-0 space-y-10">
         {/* Connection cards for missing platforms */}
         {missingPlatforms && (
           <motion.div
@@ -212,7 +258,7 @@ export default function Hub() {
             )}
             {!hasYTMusic && (
               <button
-                onClick={() => navigate("/")}
+                onClick={() => navigate("/settings")}
                 className="flex items-center gap-2 px-3.5 py-2 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-red-500/30 transition-all"
               >
                 <PlayCircle className="w-4 h-4 text-red-500 shrink-0" />
@@ -249,38 +295,6 @@ export default function Hub() {
                 {artists.map((artist, i) => (
                   <ArtistCard
                     key={artist.name}
-                    artist={artist}
-                    index={i}
-                    onClick={() => setSelectedArtist(artist.name)}
-                  />
-                ))}
-              </div>
-            )}
-          </motion.section>
-        )}
-
-        {/* Show Last.fm artists separately when we also have Spotify artists */}
-        {hasSpotify && lastfmArtists.length > 0 && artists.length > 0 && (
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15, duration: 0.6 }}
-          >
-            <button
-              onClick={() => setCollapsed((c) => ({ ...c, lastfm: !c.lastfm }))}
-              className="flex items-center gap-2 mb-6 group"
-            >
-              {collapsed.lastfm ? <ChevronRight size={16} className="text-[#d51007]" /> : <ChevronDown size={16} className="text-[#d51007]" />}
-              <h2 className="text-sm font-semibold uppercase tracking-widest text-[#d51007] group-hover:text-[#d51007]/80 transition-colors">
-                Top Artistas (Last.fm)
-              </h2>
-              <span className="text-xs text-white/30">{lastfmArtists.length}</span>
-            </button>
-            {!collapsed.lastfm && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                {lastfmArtists.map((artist, i) => (
-                  <ArtistCard
-                    key={`lfm-${artist.name}`}
                     artist={artist}
                     index={i}
                     onClick={() => setSelectedArtist(artist.name)}
@@ -353,6 +367,53 @@ export default function Hub() {
             ))}
           </div>
         </motion.section>
+        </div>
+
+        {/* Recommended artists — compact sidebar */}
+        {recommendedArtists.length > 0 && (
+          <motion.aside
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3, duration: 0.6 }}
+            className="hidden lg:block w-72 shrink-0"
+          >
+            <div className="sticky top-8">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-purple-400 mb-4">
+                Recomendados pra voce
+              </h2>
+              <div className="grid grid-cols-3 gap-2">
+                {recommendedArtists.map((artist, i) => (
+                  <motion.button
+                    key={`rec-${artist.name}`}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.35 + i * 0.04, duration: 0.3 }}
+                    onClick={() => setSelectedArtist(artist.name)}
+                    className="group flex flex-col items-center gap-1.5 p-1.5 rounded-xl hover:bg-white/5 transition-colors"
+                    title={artist.from ? `Similar a ${artist.from.join(", ")}` : artist.name}
+                  >
+                    <div className="w-full aspect-square rounded-lg overflow-hidden bg-white/5">
+                      {artist.image ? (
+                        <img
+                          src={artist.image}
+                          alt={artist.name}
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-white/20 text-lg">
+                          <Music size={16} />
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-white/60 group-hover:text-white/90 transition-colors truncate w-full text-center leading-tight">
+                      {artist.name}
+                    </span>
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+          </motion.aside>
+        )}
       </main>
 
       {selectedArtist && (

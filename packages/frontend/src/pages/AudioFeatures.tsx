@@ -246,7 +246,7 @@ export default function AudioFeatures() {
       <header className="sticky top-0 z-20 bg-spotify-dark/80 backdrop-blur-lg border-b border-white/5">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <button
-            onClick={() => navigate(`/hub?artists=${searchParams.get("hubData") || ""}`)}
+            onClick={() => navigate("/hub")}
             className="flex items-center gap-2 text-spotify-text hover:text-white transition-colors"
           >
             <ArrowLeft size={20} />
