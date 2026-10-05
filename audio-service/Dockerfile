@@ -16,4 +16,6 @@ COPY app.py .
 
 EXPOSE 5001
 
-CMD ["python", "app.py"]
+# Analysis is CPU-bound and single-threaded, so throughput scales with worker processes.
+# Each worker loads its own models (~1.3 GB RAM); a track can take well over gunicorn's default 30s timeout.
+CMD ["gunicorn", "--workers", "3", "--timeout", "300", "--bind", "0.0.0.0:5001", "app:app"]
