@@ -1,6 +1,8 @@
 services:
   audio-service:
     build: ./audio-service
+    # essentia-tensorflow only ships linux x86_64 wheels; on Apple Silicon this runs under Rosetta
+    platform: linux/amd64
     ports:
       - "127.0.0.1:5001:5001"
 
