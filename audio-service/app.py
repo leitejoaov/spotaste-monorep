@@ -15,16 +15,19 @@ MODELS_DIR = "/app/models"
 EMBEDDING_MODEL = None
 CLASSIFICATION_MODELS = {}
 
-MOOD_HEADS = [
-    "mood_happy",
-    "mood_sad",
-    "mood_aggressive",
-    "mood_relaxed",
-    "mood_party",
-    "voice_instrumental",
-    "mood_acoustic",
-    "danceability",
-]
+# Each head is a binary classifier; the value is the index of the class we store,
+# taken from the "classes" list in the model's .json metadata on essentia.upf.edu
+# (e.g. mood_happy is ["happy", "non_happy"], mood_sad is ["non_sad", "sad"]).
+MOOD_HEADS = {
+    "mood_happy": 0,
+    "mood_sad": 1,
+    "mood_aggressive": 0,
+    "mood_relaxed": 1,
+    "mood_party": 1,
+    "voice_instrumental": 0,  # ["instrumental", "voice"] — stored as 1 = instrumental
+    "mood_acoustic": 0,
+    "danceability": 0,
+}
 
 
 def load_models():
@@ -132,8 +135,8 @@ def analyze_audio(file_path: str) -> dict:
 
             for head_name, model in CLASSIFICATION_MODELS.items():
                 predictions = model(embeddings)
-                # predictions shape: (frames, 2) — column 1 is positive class
-                score = float(np.mean(predictions[:, 1]))
+                # predictions shape: (frames, 2)
+                score = float(np.mean(predictions[:, MOOD_HEADS[head_name]]))
                 result[head_name] = round(score, 3)
 
                 # Use TF danceability if available (overrides algorithmic)
