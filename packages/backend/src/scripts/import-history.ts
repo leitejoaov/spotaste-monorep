@@ -154,8 +154,9 @@ async function analyzeDirect(tracks: HistoryTrack[], concurrency: number): Promi
       }
       const total = done + failed;
       if (total % 10 === 0 || total === tracks.length) {
+        // Wall-clock time per finished track, so concurrency is already accounted for
         const perTrack = (Date.now() - started) / total;
-        const etaMin = Math.round(((tracks.length - total) * perTrack) / concurrency / 60_000);
+        const etaMin = Math.round(((tracks.length - total) * perTrack) / 60_000);
         console.log(`[import] ${total}/${tracks.length} (ok ${done}, failed ${failed}) — ETA ~${etaMin} min`);
       }
     }

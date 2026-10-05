@@ -180,7 +180,9 @@ def health():
     })
 
 
+# Loaded at import time so each gunicorn worker gets its own copy of the models
+load_models()
+
+
 if __name__ == "__main__":
-    with app.app_context():
-        load_models()
     app.run(host="0.0.0.0", port=5001)
