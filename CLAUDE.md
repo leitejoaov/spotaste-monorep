@@ -37,6 +37,7 @@ App de análise de gosto musical via Spotify + IA + análise real de áudio.
 │   ├── matcher.ts             # Weighted Euclidean distance scoring pra text-to-playlist
 │   ├── worker.ts              # Background worker (fila + re-análise de moods)
 │   ├── index.ts               # Express app, todos os endpoints
+│   ├── scripts/import-history.ts  # Import do export do Spotify → analysis_queue / análise direta
 │   └── routes/auth.ts         # OAuth callback + enqueue progressivo de tracks
 ├── packages/frontend/src/
 │   ├── pages/                 # Login, Hub, Judge, TasteAnalysis, AudioFeatures, Library, TextToPlaylist, PlaylistHistory
@@ -60,6 +61,8 @@ App de análise de gosto musical via Spotify + IA + análise real de áudio.
 docker compose up -d           # audio-service + postgres
 pnpm dev:backend               # backend na porta 3000
 pnpm dev:frontend              # frontend na porta 5173
+pnpm import:history <my_spotify_data.zip> [--direct] [--min-plays N] [--limit N] [--dry-run]
+                               # importa Extended Streaming History e manda tudo pro audio-service
 ```
 
 ## Env vars necessárias

@@ -177,6 +177,37 @@ export async function addToQueue(
   );
 }
 
+// Bulk enqueue preserving the given order (created_at is staggered by 1ms per item,
+// so the worker picks them up in array order, after anything already pending).
+export async function bulkAddToQueue(items: QueueItem[]): Promise<number> {
+  if (items.length === 0) return 0;
+  const { rowCount } = await pool.query(
+    `INSERT INTO analysis_queue (spotify_id, track_name, artist_name, created_at)
+     SELECT t.spotify_id, t.track_name, t.artist_name,
+            NOW() + (t.ord * INTERVAL '1 millisecond')
+     FROM unnest($1::text[], $2::text[], $3::text[]) WITH ORDINALITY
+       AS t(spotify_id, track_name, artist_name, ord)
+     ON CONFLICT (spotify_id) DO NOTHING`,
+    [
+      items.map((i) => i.spotify_id),
+      items.map((i) => i.track_name),
+      items.map((i) => i.artist_name),
+    ]
+  );
+  return rowCount ?? 0;
+}
+
+export async function getAnalyzedSpotifyIds(): Promise<Set<string>> {
+  const { rows } = await pool.query(
+    "SELECT spotify_id FROM track_features WHERE mood_happy IS NOT NULL"
+  );
+  return new Set(rows.map((r) => r.spotify_id));
+}
+
+export async function closeDb(): Promise<void> {
+  await pool.end();
+}
+
 export async function getPendingQueue(): Promise<QueueItem[]> {
   const { rows } = await pool.query(
     `SELECT spotify_id, track_name, artist_name FROM analysis_queue
