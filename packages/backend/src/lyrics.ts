@@ -50,8 +50,11 @@ function cleanForSearch(artist: string, title: string): { artist: string; title:
   return { artist: cleanArtist, title: cleanTitle };
 }
 
+const LRCLIB_USER_AGENT = "spotaste (https://github.com/leitejoaov/spotaste-monorep)";
+const MAX_LYRICS_CHARS = 3000;
+
 /**
- * Fetch lyrics from lyrics.ovh (free, no auth required).
+ * Fetch lyrics, trying LRCLIB first and lyrics.ovh as a fallback (both free, no auth required).
  * Returns the lyrics text or null if not found.
  */
 export async function fetchLyrics(artist: string, title: string): Promise<string | null> {
@@ -59,27 +62,62 @@ export async function fetchLyrics(artist: string, title: string): Promise<string
 
   if (!clean.artist || !clean.title || clean.artist.length < 2 || clean.title.length < 2) return null;
 
-  // Try with cleaned names first
-  const result = await tryFetch(clean.artist, clean.title);
-  if (result) return result;
+  const originalArtist = artist.trim();
+  const artistChanged = clean.artist.toLowerCase() !== originalArtist.toLowerCase();
 
-  // If cleaned names differ from original, try original artist + cleaned title
-  if (clean.artist.toLowerCase() !== artist.trim().toLowerCase()) {
-    const fallback = await tryFetch(artist.trim(), clean.title);
-    if (fallback) return fallback;
+  for (const source of [fetchFromLrclib, fetchFromLyricsOvh]) {
+    // Try with cleaned names first
+    const result = await source(clean.artist, clean.title);
+    if (result) return result;
+
+    // If cleaned names differ from original, try original artist + cleaned title
+    if (artistChanged) {
+      const fallback = await source(originalArtist, clean.title);
+      if (fallback) return fallback;
+    }
   }
 
   return null;
 }
 
-async function tryFetch(artist: string, title: string): Promise<string | null> {
+function normalizeName(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+async function fetchFromLrclib(artist: string, title: string): Promise<string | null> {
+  try {
+    const { data } = await axios.get("https://lrclib.net/api/search", {
+      params: { track_name: title, artist_name: artist },
+      headers: { "User-Agent": LRCLIB_USER_AGENT },
+      timeout: 8000,
+    });
+    if (!Array.isArray(data)) return null;
+
+    // Search is fuzzy, so only accept results credited to the artist we asked for
+    const wanted = normalizeName(artist);
+    const hit = data.find((item: any) => {
+      if (typeof item?.plainLyrics !== "string" || item.plainLyrics.trim().length <= 20) return false;
+      const found = normalizeName(String(item.artistName ?? ""));
+      return found.length > 0 && (found.includes(wanted) || wanted.includes(found));
+    });
+    return hit ? hit.plainLyrics.trim().slice(0, MAX_LYRICS_CHARS) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchFromLyricsOvh(artist: string, title: string): Promise<string | null> {
   try {
     const { data } = await axios.get(
       `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`,
       { timeout: 8000 }
     );
     if (data.lyrics && typeof data.lyrics === "string" && data.lyrics.trim().length > 20) {
-      return data.lyrics.trim().slice(0, 3000);
+      return data.lyrics.trim().slice(0, MAX_LYRICS_CHARS);
     }
     return null;
   } catch {
