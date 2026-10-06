@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { randomBytes } from "crypto";
 import { config } from "../config.js";
-import { getAuthUrl, exchangeCode, getTopArtists, getTopTracks, getSpotifyUserId } from "../spotify.js";
+import { getAuthUrl, exchangeCode, getTopTracks, getSpotifyUserId } from "../spotify.js";
 import { addToQueue, getTrackFeatures, trackExistsByName, findOrCreateUser } from "../db.js";
 import { backfillSpotifyIds } from "../worker.js";
 
@@ -45,17 +45,7 @@ authRouter.get("/callback", async (req, res) => {
     const spotifyUserId = await getSpotifyUserId(accessToken);
     const user = await findOrCreateUser("spotify", spotifyUserId);
 
-    console.log("[callback] got access token, fetching artists...");
-    const artists = await getTopArtists(accessToken);
-    console.log("[callback] got", artists.length, "artists, redirecting to hub");
-
-    const topArtistsData = artists.map((a) => ({
-      name: a.name,
-      image: a.images[0]?.url ?? "",
-      genres: a.genres.slice(0, 3),
-    }));
-
-    const artistsPayload = encodeURIComponent(JSON.stringify(topArtistsData));
+    console.log("[callback] got access token, redirecting to hub");
 
     // Enqueue top 100 tracks for background analysis (fire-and-forget)
     (async () => {
@@ -90,7 +80,7 @@ authRouter.get("/callback", async (req, res) => {
 
     // Redirect to frontend callback page that stores token in sessionStorage
     // Token is in a hash fragment (not query param) so it's not sent to servers or logged
-    res.redirect(`${config.frontendUrl}/#/auth-callback?artists=${artistsPayload}&t=${encodeURIComponent(accessToken)}&userId=${user.id}`);
+    res.redirect(`${config.frontendUrl}/#/auth-callback?t=${encodeURIComponent(accessToken)}&userId=${user.id}`);
   } catch (error) {
     console.error("[callback] ERROR:", error);
     res.redirect(`${config.frontendUrl}/#/error?message=${encodeURIComponent("Something went wrong")}`);

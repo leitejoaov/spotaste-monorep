@@ -74,7 +74,41 @@ export async function getTopArtists(accessToken: string): Promise<SpotifyArtist[
     }
   );
 
-  return data.items;
+  if (data.items.length > 0) return data.items;
+
+  // Fallback for new users: extract artists from recently played tracks
+  console.log("[spotify] no top artists, falling back to recently played");
+  try {
+    const { data: recent } = await axios.get(
+      "https://api.spotify.com/v1/me/player/recently-played?limit=50",
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    const artistMap = new Map<string, SpotifyArtist>();
+    for (const item of recent.items || []) {
+      const track = item.track;
+      if (!track?.artists?.[0]) continue;
+      for (const a of track.artists) {
+        if (artistMap.has(a.id)) continue;
+        artistMap.set(a.id, {
+          id: a.id,
+          name: a.name,
+          genres: [],
+          images: track.album?.images || [],
+          popularity: 0,
+          external_urls: a.external_urls || { spotify: "" },
+        });
+      }
+      if (artistMap.size >= 10) break;
+    }
+
+    const artists = [...artistMap.values()];
+    console.log(`[spotify] found ${artists.length} artists from recently played`);
+    return artists;
+  } catch (err) {
+    console.error("[spotify] recently played fallback failed:", err);
+    return [];
+  }
 }
 
 export interface SpotifyTrack {

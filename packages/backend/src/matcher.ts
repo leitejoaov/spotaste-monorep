@@ -44,6 +44,14 @@ const FEATURE_MAP: {
   { key: "mood_acoustic", trackKey: "mood_acoustic", profileKey: "mood_acoustic" },
 ];
 
+// Mood features that must be present for a track to be considered fully analyzed
+const MOOD_KEYS: (keyof TrackFeatures)[] = [
+  "mood_happy", "mood_sad", "mood_relaxed", "mood_aggressive",
+];
+
+// Tags that are metadata markers, not real theme tags
+const IGNORE_TAGS = new Set(["instrumental", "unknown", "error"]);
+
 function scoreTrack(track: TrackFeatures, profile: VibeProfile): number {
   let weightedDistSum = 0;
   let weightSum = 0;
@@ -66,7 +74,24 @@ function scoreTrack(track: TrackFeatures, profile: VibeProfile): number {
 
   if (weightSum === 0) return 0;
 
-  return Math.max(0, 1 - Math.sqrt(weightedDistSum / weightSum));
+  // Use a softer curve: 1 - dist^1.2 instead of 1 - dist
+  const rawDist = Math.sqrt(weightedDistSum / weightSum);
+  let audioScore = Math.max(0, 1 - Math.pow(rawDist, 1.2));
+
+  // Lyrics tag boost: if the vibe profile has theme_tags, boost tracks with matching tags
+  const vibeTags = profile.theme_tags;
+  const trackTags = track.lyrics_tags;
+  if (vibeTags && vibeTags.length > 0 && trackTags && trackTags.length > 0) {
+    const vibeSet = new Set(vibeTags.map((t) => t.toLowerCase()));
+    const matchingTags = trackTags.filter((t) => !IGNORE_TAGS.has(t) && vibeSet.has(t));
+    if (matchingTags.length > 0) {
+      // Boost: up to +10% for 3+ matching tags
+      const boost = Math.min(matchingTags.length / 3, 1.0) * 0.10;
+      audioScore = Math.min(1, audioScore + boost);
+    }
+  }
+
+  return audioScore;
 }
 
 export function matchTracks(
@@ -74,7 +99,12 @@ export function matchTracks(
   allTracks: TrackFeatures[],
   limit = 20
 ): ScoredTrack[] {
-  const scored = allTracks.map((track) => ({
+  // Filter out tracks without mood analysis data — they dilute match quality
+  const analyzed = allTracks.filter((t) =>
+    MOOD_KEYS.some((k) => t[k] != null)
+  );
+
+  const scored = analyzed.map((track) => ({
     track,
     score: scoreTrack(track, profile),
   }));

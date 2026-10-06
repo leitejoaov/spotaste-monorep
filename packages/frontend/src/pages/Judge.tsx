@@ -80,7 +80,6 @@ export default function Judge() {
   const [copied, setCopied] = useState(false);
   const [typing, setTyping] = useState(false);
 
-  const hubData = searchParams.get("hubData") || "";
   const { getHeaders } = usePlatform();
 
   const fetchAnalysis = useCallback(async (artistsList: ArtistData[]) => {
@@ -241,7 +240,7 @@ export default function Judge() {
       <div className="min-h-screen bg-gradient-to-b from-spotify-dark via-[#0d1117] to-spotify-dark flex flex-col items-center justify-center px-4 gap-4">
         <p className="text-red-400 text-lg">{error}</p>
         <button
-          onClick={() => navigate(`/hub?artists=${hubData}`)}
+          onClick={() => navigate("/hub")}
           className="px-6 py-3 rounded-full border border-spotify-green/30 text-spotify-green hover:bg-spotify-green/10 transition-all text-sm font-medium"
         >
           Voltar ao Hub
@@ -256,7 +255,7 @@ export default function Judge() {
       <header className="sticky top-0 z-20 bg-spotify-dark/80 backdrop-blur-lg border-b border-white/5">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
           <button
-            onClick={() => navigate(`/hub?artists=${hubData}`)}
+            onClick={() => navigate("/hub")}
             className="flex items-center gap-2 text-spotify-text hover:text-white transition-colors"
           >
             <ArrowLeft size={20} />
@@ -349,7 +348,7 @@ export default function Judge() {
             className="pt-6 text-center"
           >
             <button
-              onClick={() => navigate(`/hub?artists=${hubData}`)}
+              onClick={() => navigate("/hub")}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-spotify-green/30 text-spotify-green hover:bg-spotify-green/10 transition-all text-sm font-medium"
             >
               Voltar ao Hub

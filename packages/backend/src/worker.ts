@@ -3,14 +3,18 @@ import {
   getTrackFeatures,
   getTracksWithoutMoods,
   getTracksWithoutSpotifyId,
+  getTracksWithoutLyrics,
   updateQueueStatus,
   updateTrackSpotifyId,
   saveTrackFeatures,
+  saveLyricsTags,
   resetStuckProcessing,
   cleanExpiredCache,
 } from "./db.js";
 import { analyzeWithEssentia } from "./essentia.js";
 import { searchTracks } from "./spotify.js";
+import { fetchLyrics } from "./lyrics.js";
+import { analyzeLyrics } from "./claude.js";
 
 const INTERVAL_MS = 30_000;
 
@@ -47,17 +51,47 @@ async function processQueue(): Promise<void> {
 
   // 2. If queue is empty, re-analyze tracks missing mood data
   const stale = await getTracksWithoutMoods();
-  if (stale.length === 0) return;
+  if (stale.length > 0) {
+    console.log(`[worker] re-analyzing ${stale.length} tracks missing mood data`);
+    for (const track of stale) {
+      try {
+        console.log(`[worker] re-analyzing: ${track.track_name} - ${track.artist_name}`);
+        const features = await analyzeWithEssentia(track.track_name, track.artist_name);
+        await saveTrackFeatures(track.spotify_id, track.track_name, track.artist_name, features);
+        console.log(`[worker] re-done: ${track.track_name}`);
+      } catch (err) {
+        console.error(`[worker] re-analysis failed: ${track.track_name}`, err);
+      }
+    }
+    return;
+  }
 
-  console.log(`[worker] re-analyzing ${stale.length} tracks missing mood data`);
-  for (const track of stale) {
+  // 3. Analyze lyrics for tracks that have mood data but no lyrics tags
+  const noLyrics = await getTracksWithoutLyrics(20);
+  if (noLyrics.length === 0) return;
+
+  console.log(`[worker] analyzing lyrics for ${noLyrics.length} tracks`);
+  for (const track of noLyrics) {
     try {
-      console.log(`[worker] re-analyzing: ${track.track_name} - ${track.artist_name}`);
-      const features = await analyzeWithEssentia(track.track_name, track.artist_name);
-      await saveTrackFeatures(track.spotify_id, track.track_name, track.artist_name, features);
-      console.log(`[worker] re-done: ${track.track_name}`);
+      const lyrics = await fetchLyrics(track.artist_name, track.track_name);
+      if (!lyrics) {
+        // No lyrics found — mark as instrumental or unknown
+        await saveLyricsTags(track.spotify_id, ["instrumental"], null);
+        console.log(`[worker] no lyrics found: ${track.track_name} (marked instrumental)`);
+        continue;
+      }
+
+      const analysis = await analyzeLyrics(track.track_name, track.artist_name, lyrics);
+      if (analysis) {
+        await saveLyricsTags(track.spotify_id, analysis.tags, analysis.language);
+        console.log(`[worker] lyrics tags: ${track.track_name} -> [${analysis.tags.join(", ")}] (${analysis.language})`);
+      } else {
+        await saveLyricsTags(track.spotify_id, ["unknown"], null);
+      }
     } catch (err) {
-      console.error(`[worker] re-analysis failed: ${track.track_name}`, err);
+      console.error(`[worker] lyrics failed: ${track.track_name}`, err);
+      // Save empty to avoid retrying forever
+      await saveLyricsTags(track.spotify_id, ["error"], null).catch(() => {});
     }
   }
 }
